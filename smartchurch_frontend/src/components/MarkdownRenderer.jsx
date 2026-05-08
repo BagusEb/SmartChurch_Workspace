@@ -151,10 +151,10 @@ const MarkdownImage = ({ src, alt }) => {
   );
 };
 
-const MarkdownRenderer = memo(({ children, ...markdownProps }) => (
+const MarkdownRenderer = memo(({ children, proseClass = "prose lg:prose-xl", ...markdownProps }) => (
   <ReactMarkdown
     {...markdownProps}
-    className="max-w-full text-inherit prose lg:prose-xl"
+    className={`max-w-full text-inherit ${proseClass}`}
     remarkPlugins={[remarkGfm]}
     components={{
       // ✅ Table kept intentional — prose default lacks overflow scroll

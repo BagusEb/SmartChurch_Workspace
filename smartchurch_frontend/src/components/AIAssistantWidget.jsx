@@ -7,66 +7,30 @@
 
 // ── React hook
 import { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import useChat from '../hooks/useChat';
 
 // ── Icons
-import { BotMessageSquare, X, Send, User, Sparkles, RotateCcw, Maximize2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { BotMessageSquare, X, Send, User, Sparkles, RotateCcw, Maximize2, Loader2, Database, BarChart2 } from 'lucide-react';
 import BubbleMessage from './BubbleMessage';
 import MarkdownRenderer from './MarkdownRenderer';
 
 const THREAD_ID_STORAGE_KEY = 'smartchurch_ai_thread_id';
 
-const readThreadIdFromSession = () => {
-  if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem(THREAD_ID_STORAGE_KEY);
+const TOOL_META = {
+  query_postgres: { label: 'Querying database', icon: Database },
+  generate_seaborn_plot: { label: 'Generating chart', icon: BarChart2 },
 };
 
-const mapBackendMessagesToWidget = (rawMessages) => {
-  if (!Array.isArray(rawMessages)) return [];
-
-  return rawMessages
-    .filter(msg => msg && typeof msg.content === 'string')
-    .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-    .map(msg => ({
-      sender: msg.role === 'user' ? 'user' : 'ai',
-      text: msg.content,
-    }));
-};
-
-const parseSseBuffer = (incomingBuffer, onChunk, onMeta, onDone) => {
-  let buffer = incomingBuffer;
-  let boundary = buffer.indexOf('\n\n');
-
-  while (boundary !== -1) {
-    const rawEvent = buffer.slice(0, boundary);
-    buffer = buffer.slice(boundary + 2);
-    boundary = buffer.indexOf('\n\n');
-
-    const dataLine = rawEvent
-      .split('\n')
-      .find(line => line.startsWith('data: '));
-    if (!dataLine) continue;
-
-    try {
-      const payload = JSON.parse(dataLine.replace('data: ', ''));
-      if (payload.type === 'meta' && payload.thread_id) {
-        onMeta?.(payload);
-      } else if (payload.type === 'status' && payload.text) {
-        onMeta?.({ statusText: payload.text });
-      } else if (payload.type === 'chunk' && payload.text) {
-        onChunk?.(payload.text);
-      } else if (payload.type === 'done') {
-        onDone?.();
-      }
-    } catch (err) {
-      console.error('Bad SSE payload', err);
-    }
-  }
-
-  return buffer;
-};
+function ToolCallPill({ toolName }) {
+  const meta = TOOL_META[toolName] || { label: toolName, icon: Loader2 };
+  const Icon = meta.icon;
+  return (
+    <div className="inline-flex items-center gap-1.5 bg-indigo-50 px-2 py-0.5 border border-indigo-200 rounded-full font-medium text-indigo-700 text-[11px]">
+      <Icon size={10} />
+      {meta.label}
+    </div>
+  );
+}
 
 const defaultAccent = {
   gradient: 'from-indigo-500 to-violet-600',
@@ -85,15 +49,9 @@ export default function AIAssistantWidget({ accent = defaultAccent }) {
   // ── Current value of the text input
   const [input, setInput] = useState('');
 
-  // ── Whether the AI is "typing" (simulated delay)
-  const [isTyping, setIsTyping] = useState(false);
-
-  const [threadId, setThreadId] = useState(() => readThreadIdFromSession());
-
-  // ── Messages are fetched from backend when a thread_id exists
-  const [messages, setMessages] = useState([]);
-  const hasLoadedHistoryRef = useRef(false);
-  
+  const { messages, addMessage, resetChat, isStreaming } = useChat(
+    typeof window !== 'undefined' ? sessionStorage.getItem(THREAD_ID_STORAGE_KEY) : null,
+  );
 
   // ── Ref to scroll to the latest message automatically
   const bottomRef = useRef(null);
@@ -101,168 +59,22 @@ export default function AIAssistantWidget({ accent = defaultAccent }) {
   // Auto-scroll to bottom whenever messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    if (!threadId) {
-      sessionStorage.removeItem(THREAD_ID_STORAGE_KEY);
-      setMessages([]);
-      hasLoadedHistoryRef.current = false;
-      return;
-    }
-
-    sessionStorage.setItem(THREAD_ID_STORAGE_KEY, threadId);
-  }, [threadId]);
-
-  useEffect(() => {
-    if (!threadId || hasLoadedHistoryRef.current) return;
-
-    // If this thread was just created during an active chat, don't overwrite current in-memory state.
-    if (messages.length > 0) {
-      hasLoadedHistoryRef.current = true;
-      return;
-    }
-
-    const loadHistory = async () => {
-      try {
-        const response = await axios.get(`http://localhost:8000/api/chat/${threadId}/`, {
-          headers: {
-            Accept: 'application/json',
-          },
-        });
-
-        const payload = response.data;
-        setMessages(mapBackendMessagesToWidget(payload.messages));
-      } catch (err) {
-        console.error(err);
-        setMessages([]);
-      } finally {
-        hasLoadedHistoryRef.current = true;
-      }
-    };
-
-    loadHistory();
-  }, [threadId, messages.length]);
-
-  const streamAIResponse = async (message, onChunk, onMeta, onDone) => {
-    const URL =
-      'http://localhost:8000/api/chat/' +
-      (threadId ? threadId + '/' : '');
-
-    let parsedLength = 0;
-    let buffer = '';
-
-    await axios.post(URL, { message }, {
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-      },
-      responseType: 'text',
-      onDownloadProgress: progressEvent => {
-        const xhr = progressEvent.event?.target;
-        const responseText = xhr?.responseText;
-        if (typeof responseText !== 'string' || responseText.length <= parsedLength) return;
-
-        const nextChunk = responseText.slice(parsedLength);
-        parsedLength = responseText.length;
-        buffer += nextChunk;
-        buffer = parseSseBuffer(buffer, onChunk, onMeta, onDone);
-      },
-    });
-
-    if (buffer.trim()) {
-      parseSseBuffer(`${buffer}\n\n`, onChunk, onMeta, onDone);
-    }
-  };
+  }, [messages, isStreaming]);
 
   const handleRestart = () => {
-    setThreadId(null);
-    setMessages([]);
     setInput('');
-    setIsTyping(false);
+    resetChat();
   };
   
-  // Handles sending a user message and simulating an AI reply
+  // Handles sending a user message
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!input.trim() || isTyping) return;
+    if (!input.trim() || isStreaming) return;
 
-    // Append the user's message to the chat
     const userMessage = input.trim();
-    setMessages(prev => [...prev, { sender: 'user', text: userMessage }]);
-    setIsTyping(true);
     setInput('');
 
-    setMessages(prev => [...prev, { sender: 'ai', text: '', streaming: true }]);
-
-    try {
-      await streamAIResponse(
-        userMessage,
-        chunk => {
-          setMessages(prev => {
-            if (!prev.length) return prev;
-            const next = [...prev];
-            const lastIndex = next.length - 1;
-            if (next[lastIndex]?.sender !== 'ai') return prev;
-            const wasStatus = Boolean(next[lastIndex].isStatus);
-            next[lastIndex] = {
-              ...next[lastIndex],
-              isStatus: false,
-              text: wasStatus
-                ? chunk
-                : (next[lastIndex].text || '') + chunk,
-            };
-            return next;
-          });
-          setIsTyping(false);
-        },
-        payload => {
-          if (payload.thread_id) setThreadId(payload.thread_id);
-          if (payload.statusText) {
-            setMessages(prev => {
-              if (!prev.length) return prev;
-              const next = [...prev];
-              const lastIndex = next.length - 1;
-              if (next[lastIndex]?.sender !== 'ai') return prev;
-              next[lastIndex] = {
-                ...next[lastIndex],
-                text: payload.statusText,
-                isStatus: true,
-              };
-              return next;
-            });
-          }
-        },
-        () => {
-          setMessages(prev => {
-            if (!prev.length) return prev;
-            const next = [...prev];
-            const lastIndex = next.length - 1;
-            if (next[lastIndex]?.sender !== 'ai') return prev;
-            next[lastIndex] = { ...next[lastIndex], streaming: false };
-            return next;
-          });
-        }
-      );
-    } catch (err) {
-      console.error(err);
-      setMessages(prev => {
-        if (!prev.length) return prev;
-        const next = [...prev];
-        const lastIndex = next.length - 1;
-        if (next[lastIndex]?.sender !== 'ai') return prev;
-        next[lastIndex] = {
-          ...next[lastIndex],
-          text: 'Maaf, terjadi kesalahan saat memproses pesan.',
-          streaming: false,
-        };
-        return next;
-      });
-    } finally {
-      setIsTyping(false);
-    }
+    await addMessage(userMessage);
   };
 
   // ============================================================
@@ -317,31 +129,82 @@ export default function AIAssistantWidget({ accent = defaultAccent }) {
             <div className="flex flex-col flex-1 gap-3 bg-slate-50 px-4 py-4 overflow-x-hidden overflow-y-auto">
               <BubbleMessage
                   avatar={<BotMessageSquare size={11} />}
-                  content={<MarkdownRenderer>Shalom! Saya AI Assistant SmartChurch. Ada insight kehadiran atau tren jemaat yang ingin Anda ketahui hari ini?</MarkdownRenderer>}
+                  content={<MarkdownRenderer proseClass="prose prose-sm">Shalom! Saya AI Assistant SmartChurch. Ada insight kehadiran atau tren jemaat yang ingin Anda ketahui hari ini?</MarkdownRenderer>}
                   alignment='left'
                   avatarClass= {`bg-linear-to-br ${accent.gradient} text-white`}
                   bubbleClass='rounded-tl-sm border border-slate-100 bg-white text-slate-700 shadow-sm'
                 />
 
-              {messages.map((msg, i) => {
-                if (msg.text === '') return null;
-                return <BubbleMessage
-                  key={i}
-                  avatar={msg.sender === 'user' ? <User size={11} /> : <BotMessageSquare size={11} />}
-                  content={<MarkdownRenderer>{msg.text}</MarkdownRenderer>}
-                  alignment={msg.sender === 'user' ? 'right' : 'left'}
-                  avatarClass={msg.sender === 'user'
-                    ? accent.userBubble
-                    : `bg-linear-to-br ${accent.gradient} text-white`}
-                  bubbleClass={msg.sender === 'user'
-                    ? `rounded-tr-sm bg-linear-to-br ${accent.gradient} text-white`
-                    : 'rounded-tl-sm border border-slate-100 bg-white text-slate-700 shadow-sm'}
-                />
-                  }
-              )}
+              {...messages.reduce((acc, msg, i) => {
+                if (!msg.data) return acc;
+                const msgData = msg.data;
+                const type = msg.type;
+                const msgContent = msgData?.content;
+                const toolCalls = msgData?.tool_calls ?? [];
+
+                const classes = new Map([
+                  ["human", {
+                    avatar: <User size={11} />,
+                    avatarClass: accent.userBubble,
+                    bubbleClass: `rounded-tr-sm bg-linear-to-br ${accent.gradient} text-white`,
+                    alignment: 'right'
+                  }],
+                  ["ai", {
+                    avatar: <BotMessageSquare size={11} />,
+                    avatarClass: `bg-linear-to-br ${accent.gradient} text-white`,
+                    bubbleClass: 'rounded-tl-sm border border-slate-100 bg-white text-slate-700 shadow-sm',
+                    alignment: 'left'
+                  }]
+                ]);
+
+                if (!classes.has(type)) return acc;
+                const styling = classes.get(type);
+                for (const tc of toolCalls) {
+                  acc.toolNames.add(tc.name);
+                }
+                const lastMessage = i === messages.length - 1;
+                if (lastMessage && msgContent === "") {
+                  acc.components.push(
+                    <div key={i} className="flex flex-col gap-2">
+                      {acc.toolNames.size > 0 && (
+                        <div className="flex flex-wrap gap-2 pl-8">
+                          {Array.from(acc.toolNames).map((tc, j) => {
+                            if (!Object.keys(TOOL_META).includes(tc)) return null;
+                            return <ToolCallPill key={`${tc}-${j}`} toolName={tc} />
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+                if (!msgContent) return acc;
+                acc.components.push(
+                  <div key={i} className="flex flex-col gap-2">
+                    {acc.toolNames.size > 0 && (
+                      <div className="flex flex-wrap gap-2 pl-8">
+                        {Array.from(acc.toolNames).map((tc, j) => {
+                          if (!Object.keys(TOOL_META).includes(tc)) return null;
+                          return <ToolCallPill key={`${tc}-${j}`} toolName={tc} />
+                        })}
+                      </div>
+                    )}
+                    {msgContent && (
+                      <BubbleMessage
+                        avatar={styling.avatar}
+                        content={<MarkdownRenderer proseClass="prose prose-sm">{msgContent}</MarkdownRenderer>}
+                        alignment={styling.alignment}
+                        avatarClass={styling.avatarClass}
+                        bubbleClass={styling.bubbleClass}
+                      />
+                    )}
+                  </div>
+                );
+                acc.toolNames.clear();
+                return acc;
+              }, { components: [], toolNames: new Set() }).components}
 
               {/* Typing indicator — three bouncing dots */}
-              {isTyping && (
+              {isStreaming && (
                 <div className="flex self-start gap-2.5 max-w-[88%]">
                   <div className={`flex justify-center items-center bg-linear-to-br ${accent.gradient} rounded-lg w-7 h-7 text-white shrink-0`}>
                     <BotMessageSquare size={13} />
@@ -374,7 +237,7 @@ export default function AIAssistantWidget({ accent = defaultAccent }) {
                 {/* Send button */}
                 <button
                   type="submit"
-                  disabled={!input.trim() || isTyping}
+                  disabled={!input.trim() || isStreaming}
                   className={`group flex justify-center items-center bg-linear-to-br ${accent.gradient} disabled:opacity-40 rounded-lg w-8 h-8 transition-all`}
                 >
                   <Send size={14} className="ml-0.5 text-white transition-transform group-hover:translate-x-0.5" />

@@ -3,7 +3,7 @@ import axios from 'axios';
 
 // --- Axios & Token Setup ---
 const apiClient = axios.create({
-  baseURL: '/api/',
+  baseURL: 'http://localhost:8000/api/',
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -39,5 +39,28 @@ export const getAllUsers = async () => {
 export const createUser = async (payload) => await apiClient.post('/manage-users/', payload);
 export const updateUser = async (id, payload) => await apiClient.put(`/manage-users/${id}/`, payload);
 export const deleteUser = async (id) => await apiClient.delete(`/manage-users/${id}/`);
+
+// Chat API
+export const getChatHistory = async (threadId) => await apiClient.get(`/chat/history/${threadId}/`);
+export const getChatThread = async (threadId) => {
+  const response = await apiClient.get(`/chat/${threadId}/`, {
+    headers: { Accept: 'application/json' },
+  });
+  return response.data;
+};
+
+export const streamChatResponse = async ({ threadId, message }) => {
+  const chatPath = `/chat/${threadId ? `${threadId}/` : ''}`;
+  return await apiClient.post(chatPath, { message }, {
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    },
+    responseType: 'stream',
+    adapter: 'fetch',
+  });
+};
+
+
 
 export default apiClient;

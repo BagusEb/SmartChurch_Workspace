@@ -60,7 +60,7 @@ Duplikasi (Copy-Paste) file .env.example dan ubah nama salinannya menjadi .env.
 Buka file .env tersebut dan isi bagian DB_PASSWORD dengan password PostgreSQL yang ada di komputermu sendiri.
 5. Jalankan server backend:
    ```bash
-   python manage.py runserver
+   uvicorn smartchurch_backend.asgi:application --reload
 5. Jalankan server frontend:
    ```bash
    npm run dev

@@ -1,368 +1,306 @@
-// ============================================================
-//  AttendanceReport.jsx
-//  Attendance history and summary report page.
-//  Shows stat cards, filter controls, and a detailed data table.
-//  All state and handler logic is preserved; only UI is enhanced.
-// ============================================================
-
-// ── React hook
-import { useState } from 'react';
-
-// ── Icons
+import { useCallback, useEffect, useState } from 'react';
 import {
-  FileText, Download, Filter, Calendar,
-  Users, TrendingUp, CheckCircle, Clock,
-  UserCheck, UserX,
-} from 'lucide-react';
+  getYearlyAttendanceReport,
+  getSummaryReports,
+  generateYearlyReport,
+  getReportDetail,
+  getFollowUpRecommendations,
+  getGuestConversionRecommendations,
+  getSessions,
+  getSessionAttendees,
+} from '../service/apiClient';
+import { FileText, Download, Filter, Users, TrendingUp, CheckCircle } from 'lucide-react';
+import StatCard from '../components/AttendanceReport/StatCard';
+import AIReportsSection from '../components/AttendanceReport/AIReportsSection';
+import GenerateModal from '../components/AttendanceReport/GenerateModal';
+import ViewReportModal from '../components/AttendanceReport/ViewReportModal';
+import RecommendationsSection from '../components/AttendanceReport/RecommendationsSection';
+import SessionsListSection from '../components/AttendanceReport/SessionsListSection';
+import RecommendationDetailModal from '../components/AttendanceReport/RecommendationDetailModal';
+import SessionAttendeesModal from '../components/AttendanceReport/SessionAttendeesModal';
+
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
+const inputCls = 'bg-slate-50 border border-slate-200 rounded-xl text-sm transition-all focus:outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100';
 
 export default function AttendanceReport() {
 
-  // ── Dummy attendance history data (replace with axios call later)
-  const [reportData] = useState([
-    { id: 1, date: '2026-03-28', name: 'Bagus Eka',     type: 'Member', time: '09:15', confidence: 95.2 },
-    { id: 2, date: '2026-03-28', name: 'Yoel Heardly',  type: 'Member', time: '09:14', confidence: 92.8 },
-    { id: 3, date: '2026-03-28', name: 'Christian',     type: 'Member', time: '09:20', confidence: 88.5 },
-    { id: 4, date: '2026-03-28', name: 'Tamu 001',      type: 'Guest',  time: '09:30', confidence: 75.0 },
-    { id: 5, date: '2026-03-21', name: 'Bagus Eka',     type: 'Member', time: '09:10', confidence: 96.1 },
-  ]);
-
-  // ── Filter state — date and type filters
-  const [dateFilter, setDateFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
-
-  // Applies active filters to the full dataset
-  const filteredData = reportData.filter(row => {
-    const matchDate = dateFilter ? row.date === dateFilter : true;
-    const matchType = typeFilter === 'all' ? true : row.type.toLowerCase() === typeFilter;
-    return matchDate && matchType;
+  const [selectedYear, setSelectedYear] = useState(String(CURRENT_YEAR));
+  const [summary, setSummary] = useState({
+    total_hadir_orang_tahun_ini: 0,
+    rata_rata_orang_per_ibadah: 0,
+    tamu_baru_count: 0,
   });
+  const [isLoading, setIsLoading] = useState(true);
 
-  // ── Placeholder for export functionality
-  const handleExport = () => {
-    alert("Fitur download laporan (PDF/Excel) akan segera aktif setelah API tersambung!");
+  const [savedReports, setSavedReports] = useState([]);
+  const [isLoadingReports, setIsLoadingReports] = useState(true);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [reportSummaryContent, setReportSummaryContent] = useState(null);
+  const [isLoadingReportSummary, setIsLoadingReportSummary] = useState(false);
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [generateStartDate, setGenerateStartDate] = useState('');
+  const [generateEndDate, setGenerateEndDate] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState('');
+
+  // Recommendations
+  const [followUps, setFollowUps] = useState([]);
+  const [guestConversions, setGuestConversions] = useState([]);
+  const [isLoadingRecs, setIsLoadingRecs] = useState(true);
+  const [selectedRec, setSelectedRec] = useState(null); // { type: 'followup'|'guest', data }
+
+  // Sessions
+  const [sessions, setSessions] = useState([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [sessionAttendees, setSessionAttendees] = useState(null);
+  const [isLoadingAttendees, setIsLoadingAttendees] = useState(false);
+
+  useEffect(() => {
+    const fetchOverview = async () => {
+      setIsLoading(true);
+      try {
+        const data = await getYearlyAttendanceReport(selectedYear);
+        setSummary({
+          total_hadir_orang_tahun_ini: data.total_hadir_orang_tahun_ini ?? 0,
+          rata_rata_orang_per_ibadah: data.rata_rata_orang_per_ibadah ?? 0,
+          tamu_baru_count: data.tamu_baru_count ?? 0,
+        });
+      } catch (error) {
+        console.error('Failed to fetch attendance overview:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchOverview();
+  }, [selectedYear]);
+
+  useEffect(() => {
+    const fetchSessions = async () => {
+      setIsLoadingSessions(true);
+      try {
+        const data = await getSessions(selectedYear);
+        setSessions(data);
+      } catch (e) {
+        console.error('Failed to fetch sessions:', e);
+      } finally {
+        setIsLoadingSessions(false);
+      }
+    };
+    fetchSessions();
+  }, [selectedYear]);
+
+  const fetchSavedReports = useCallback(async () => {
+    try {
+      setIsLoadingReports(true);
+      const data = await getSummaryReports();
+      setSavedReports(
+        [...data].sort((a, b) => new Date(b.report_start_date) - new Date(a.report_start_date))
+      );
+    } catch (e) {
+      console.error('Failed to fetch saved reports:', e);
+    } finally {
+      setIsLoadingReports(false);
+    }
+  }, []);
+
+  const fetchRecommendations = useCallback(async () => {
+    setIsLoadingRecs(true);
+    try {
+      const [fu, gc] = await Promise.all([
+        getFollowUpRecommendations(),
+        getGuestConversionRecommendations(),
+      ]);
+      setFollowUps(fu);
+      setGuestConversions(gc);
+    } catch (e) {
+      console.error('Failed to fetch recommendations:', e);
+    } finally {
+      setIsLoadingRecs(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchSavedReports(); }, [fetchSavedReports]);
+  useEffect(() => { fetchRecommendations(); }, [fetchRecommendations]);
+
+  const openReport = async (report) => {
+    setSelectedReport(report);
+    setReportSummaryContent(null);
+    setIsLoadingReportSummary(true);
+    try {
+      const detail = await getReportDetail(report.id);
+      setReportSummaryContent(detail.report_summary ?? '');
+    } catch {
+      setReportSummaryContent('Gagal memuat isi laporan.');
+    } finally {
+      setIsLoadingReportSummary(false);
+    }
   };
 
-  // ── Formats a date string from YYYY-MM-DD to a readable Indonesian format
+  const handleGenerate = async () => {
+    if (!generateStartDate || !generateEndDate) return;
+    try {
+      setIsGenerating(true);
+      setGenerateError('');
+      await generateYearlyReport(generateStartDate, generateEndDate);
+      await fetchSavedReports();
+      setShowGenerateModal(false);
+      setGenerateStartDate('');
+      setGenerateEndDate('');
+    } catch (e) {
+      setGenerateError('Gagal membuat laporan. Coba lagi.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleSessionClick = async (session) => {
+    setSelectedSession(session);
+    setSessionAttendees(null);
+    setIsLoadingAttendees(true);
+    try {
+      const data = await getSessionAttendees(session.date);
+      setSessionAttendees(data);
+    } catch {
+      setSessionAttendees({ members: [], guests: [] });
+    } finally {
+      setIsLoadingAttendees(false);
+    }
+  };
+
+
   const formatDate = (dateStr) => {
     if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    return new Date(dateStr).toLocaleDateString('id-ID', {
+      day: 'numeric', month: 'long', year: 'numeric',
+    });
   };
 
-  // ── Returns initials from a name string (max 2 characters)
-  const getInitials = (name) =>
-    name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
-
-  // ============================================================
-  //  RENDER
-  // ============================================================
   return (
     <>
-      {/* ── Component-scoped styles ── */}
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-        .rep-root { font-family: 'Plus Jakarta Sans', sans-serif; }
+      <div className="flex flex-col gap-5 font-plus-jakarta">
 
-        /* Staggered row fade-in */
-        .rep-row { animation: repRowFade 0.3s ease both; }
-        @keyframes repRowFade {
-          from { opacity: 0; transform: translateY(5px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Subtle row hover */
-        .rep-row:hover { background: linear-gradient(90deg,#f5f3ff 0%,#ffffff 100%); }
-
-        /* Export button hover */
-        .btn-export:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.08); transform: translateY(-1px); }
-        .btn-export { transition: all 0.2s ease; }
-
-        /* Input focus ring */
-        .rep-input:focus {
-          outline: none;
-          border-color: #a5b4fc;
-          box-shadow: 0 0 0 3px rgba(165,180,252,0.25);
-        }
-
-        /* Confidence bar fill animation */
-        .conf-fill { transition: width 0.6s ease; }
-
-        /* Scrollbar */
-        .rep-table::-webkit-scrollbar { height: 4px; }
-        .rep-table::-webkit-scrollbar-track { background: transparent; }
-        .rep-table::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 4px; }
-      `}</style>
-
-      <div className="rep-root flex flex-col gap-5 h-full">
-
-        {/* ── PAGE HEADER ── */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex sm:flex-row flex-col sm:justify-between sm:items-center gap-4">
           <div className="flex items-center gap-4">
-            {/* Page icon */}
-            <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', boxShadow: '0 4px 14px rgba(99,102,241,0.35)' }}
-            >
+            <div className="flex justify-center items-center bg-linear-to-br from-indigo-500 to-purple-500 shadow-indigo-200 shadow-lg rounded-2xl w-12 h-12 shrink-0">
               <FileText size={22} className="text-white" />
             </div>
             <div>
-              <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">Laporan Kehadiran</h2>
-              <p className="text-slate-500 text-sm mt-0.5">Pantau tren partisipasi jemaat dan riwayat absensi mingguan</p>
+              <h2 className="font-extrabold text-slate-800 text-2xl tracking-tight">Laporan Kehadiran</h2>
+              <p className="mt-0.5 text-slate-500 text-sm">Pantau tren partisipasi jemaat dan riwayat absensi tahunan</p>
             </div>
-          </div>
-
-          {/* Export button */}
-          <button
-            onClick={handleExport}
-            className="btn-export flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm flex-shrink-0"
-          >
-            <Download size={15} className="text-indigo-500" />
-            Export Laporan
-          </button>
-        </div>
-
-        {/* ── STAT CARDS ── */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-          {/* Total attendance this month */}
-          <div
-            className="rounded-2xl p-5 text-white"
-            style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', boxShadow: '0 4px 16px rgba(99,102,241,0.28)' }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-indigo-200 text-xs font-semibold uppercase tracking-wide">Total Hadir</p>
-              <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-                <Users size={15} className="text-white" />
-              </div>
-            </div>
-            <p className="text-3xl font-extrabold">128</p>
-            <p className="text-indigo-200 text-xs mt-1.5">Orang bulan ini</p>
-          </div>
-
-          {/* Average attendance per service */}
-          <div
-            className="rounded-2xl p-5 text-white"
-            style={{ background: 'linear-gradient(135deg,#10b981,#059669)', boxShadow: '0 4px 16px rgba(16,185,129,0.28)' }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-emerald-200 text-xs font-semibold uppercase tracking-wide">Rata-rata</p>
-              <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-                <TrendingUp size={15} className="text-white" />
-              </div>
-            </div>
-            <p className="text-3xl font-extrabold">32</p>
-            <p className="text-emerald-200 text-xs mt-1.5">Orang per ibadah</p>
-          </div>
-
-          {/* New guests registered */}
-          <div
-            className="rounded-2xl p-5 text-white"
-            style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', boxShadow: '0 4px 16px rgba(245,158,11,0.28)' }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-amber-200 text-xs font-semibold uppercase tracking-wide">Tamu Baru</p>
-              <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-                <CheckCircle size={15} className="text-white" />
-              </div>
-            </div>
-            <p className="text-3xl font-extrabold">5</p>
-            <p className="text-amber-200 text-xs mt-1.5">Orang terdaftar</p>
           </div>
         </div>
 
-        {/* ── TABLE CARD ── */}
-        <div className="bg-white border border-slate-100 shadow-sm rounded-2xl flex flex-col flex-1 overflow-hidden min-h-[360px]">
-
-          {/* Filter bar */}
-          <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-
-            {/* Left: label */}
-            <div className="flex items-center gap-2">
-              <Filter size={15} className="text-slate-400" />
-              <span className="text-sm font-bold text-slate-600">Filter Data</span>
-              {/* Active filter count badge */}
-              {(dateFilter || typeFilter !== 'all') && (
-                <span
-                  className="text-xs font-bold px-2 py-0.5 rounded-full text-indigo-700"
-                  style={{ background: 'rgba(99,102,241,0.1)' }}
-                >
-                  {filteredData.length} hasil
-                </span>
-              )}
-            </div>
-
-            {/* Right: filter controls */}
-            <div className="flex flex-wrap items-center gap-2">
-
-              {/* Date picker */}
-              <div className="relative">
-                <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                <input
-                  type="date"
-                  value={dateFilter}
-                  onChange={e => setDateFilter(e.target.value)}
-                  className="rep-input pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-sm bg-slate-50 transition-all"
-                />
-              </div>
-
-              {/* Type filter dropdown */}
-              <select
-                value={typeFilter}
-                onChange={e => setTypeFilter(e.target.value)}
-                className="rep-input px-3 py-2 border border-slate-200 rounded-xl text-sm bg-slate-50 transition-all pr-8"
-              >
-                <option value="all">Semua Status</option>
-                <option value="member">Hanya Member</option>
-                <option value="guest">Hanya Tamu</option>
-              </select>
-
-              {/* Clear filters — only shown when a filter is active */}
-              {(dateFilter || typeFilter !== 'all') && (
-                <button
-                  onClick={() => { setDateFilter(''); setTypeFilter('all'); }}
-                  className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
-                >
-                  Reset
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Horizontally scrollable table */}
-          <div className="rep-table overflow-x-auto flex-1">
-            <table className="w-full text-left min-w-[640px]">
-
-              {/* Column headers */}
-              <thead>
-                <tr className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                  <th className="px-5 py-3.5">Tanggal Ibadah</th>
-                  <th className="px-5 py-3.5">Nama Lengkap</th>
-                  <th className="px-5 py-3.5">Status</th>
-                  <th className="px-5 py-3.5">Jam Masuk</th>
-                  <th className="px-5 py-3.5">Akurasi AI</th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-slate-50">
-
-                {/* Empty state — no data matches the active filters */}
-                {filteredData.length === 0 ? (
-                  <tr>
-                    <td colSpan="5" className="py-16 text-center">
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
-                          <FileText size={20} className="text-slate-400" />
-                        </div>
-                        <p className="text-sm font-medium text-slate-500">Tidak ada data ditemukan</p>
-                        <p className="text-xs text-slate-400">Coba ubah atau reset filter</p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  // Data rows — one per attendance record
-                  filteredData.map((row, i) => (
-                    <tr
-                      key={row.id}
-                      className="rep-row transition-colors"
-                      style={{ animationDelay: `${i * 0.05}s` }}
-                    >
-                      {/* Date cell */}
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                            <Calendar size={13} className="text-slate-500" />
-                          </div>
-                          <span className="text-sm text-slate-600 font-medium">{formatDate(row.date)}</span>
-                        </div>
-                      </td>
-
-                      {/* Name cell with avatar initials */}
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                            style={{
-                              background: row.type === 'Member'
-                                ? 'linear-gradient(135deg,#6366f1,#8b5cf6)'
-                                : 'linear-gradient(135deg,#f59e0b,#d97706)',
-                            }}
-                          >
-                            {getInitials(row.name)}
-                          </div>
-                          <span className="text-sm font-semibold text-slate-800">{row.name}</span>
-                        </div>
-                      </td>
-
-                      {/* Type badge — indigo for member, amber for guest */}
-                      <td className="px-5 py-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg ${
-                            row.type === 'Member'
-                              ? 'bg-indigo-50 text-indigo-700'
-                              : 'bg-amber-50 text-amber-700'
-                          }`}
-                        >
-                          {row.type === 'Member'
-                            ? <UserCheck size={11} />
-                            : <UserX size={11} />
-                          }
-                          {row.type}
-                        </span>
-                      </td>
-
-                      {/* Check-in time */}
-                      <td className="px-5 py-4">
-                        <span className="inline-flex items-center gap-1.5 text-sm text-slate-600">
-                          <Clock size={13} className="text-slate-400" />
-                          {row.time}
-                        </span>
-                      </td>
-
-                      {/* AI confidence: mini progress bar + percentage */}
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          {/* Progress bar — green above 90%, indigo below */}
-                          <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className={`conf-fill h-full rounded-full ${
-                                row.confidence >= 90 ? 'bg-emerald-400' : row.confidence >= 80 ? 'bg-indigo-400' : 'bg-amber-400'
-                              }`}
-                              style={{ width: `${row.confidence}%` }}
-                            />
-                          </div>
-                          {/* Confidence percentage in a small pill */}
-                          <span
-                            className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded-md ${
-                              row.confidence >= 90
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : row.confidence >= 80
-                                ? 'bg-indigo-50 text-indigo-700'
-                                : 'bg-amber-50 text-amber-700'
-                            }`}
-                          >
-                            {row.confidence}%
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Table footer: row count summary */}
-          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between flex-shrink-0">
-            <p className="text-xs text-slate-400">
-              Menampilkan <span className="font-semibold text-slate-600">{filteredData.length}</span> dari{' '}
-              <span className="font-semibold text-slate-600">{reportData.length}</span> data
-            </p>
-            {/* Placeholder for pagination — add later when API is connected */}
-            <p className="text-xs text-slate-400">Halaman 1 dari 1</p>
-          </div>
+        <div className="flex items-center gap-2">
+          <Filter size={14} className="text-slate-400" />
+          <span className="font-semibold text-slate-500 text-sm">Tahun:</span>
+          <select
+            value={selectedYear}
+            onChange={e => setSelectedYear(e.target.value)}
+            className={`${inputCls} px-3 py-2`}
+          >
+            {YEAR_OPTIONS.map(y => (
+              <option key={y} value={String(y)}>{y}</option>
+            ))}
+          </select>
         </div>
+
+        <div className="gap-4 grid grid-cols-1 md:grid-cols-3">
+          <StatCard
+            label="Total Hadir"
+            value={summary.total_hadir_orang_tahun_ini}
+            icon={Users}
+            gradient="bg-linear-to-br from-indigo-500 to-purple-500"
+            shadow="shadow-indigo-200"
+            labelColor="text-indigo-200"
+            subLabel={`Orang tahun ${selectedYear}`}
+            isLoading={isLoading}
+          />
+          <StatCard
+            label="Rata-rata"
+            value={summary.rata_rata_orang_per_ibadah}
+            icon={TrendingUp}
+            gradient="bg-linear-to-br from-emerald-500 to-emerald-600"
+            shadow="shadow-emerald-200"
+            labelColor="text-emerald-200"
+            subLabel="Orang per ibadah"
+            isLoading={isLoading}
+          />
+          <StatCard
+            label="Tamu Baru"
+            value={summary.tamu_baru_count}
+            icon={CheckCircle}
+            gradient="bg-linear-to-br from-amber-400 to-amber-600"
+            shadow="shadow-amber-200"
+            labelColor="text-amber-200"
+            subLabel="Orang terdaftar"
+            isLoading={isLoading}
+          />
+        </div>
+
+        <RecommendationsSection
+          followUps={followUps}
+          guestConversions={guestConversions}
+          isLoading={isLoadingRecs}
+          onSelectFollowUp={(item) => setSelectedRec({ type: 'followup', data: item })}
+          onSelectGuest={(item) => setSelectedRec({ type: 'guest', data: item })}
+        />
+
+        <SessionsListSection
+          sessions={sessions}
+          isLoading={isLoadingSessions}
+          onSessionClick={handleSessionClick}
+        />
+
+        <AIReportsSection
+          savedReports={savedReports}
+          isLoadingReports={isLoadingReports}
+          openReport={openReport}
+          onCreateClick={() => { setShowGenerateModal(true); setGenerateError(''); }}
+          formatDate={formatDate}
+        />
 
       </div>
+
+      <GenerateModal
+        show={showGenerateModal}
+        startDate={generateStartDate}
+        endDate={generateEndDate}
+        isGenerating={isGenerating}
+        generateError={generateError}
+        onClose={() => setShowGenerateModal(false)}
+        onGenerate={handleGenerate}
+        setStartDate={setGenerateStartDate}
+        setEndDate={setGenerateEndDate}
+      />
+
+      <ViewReportModal
+        report={selectedReport}
+        isLoading={isLoadingReportSummary}
+        content={reportSummaryContent}
+        onClose={() => setSelectedReport(null)}
+        formatDate={formatDate}
+      />
+
+      {selectedRec && (
+        <RecommendationDetailModal
+          type={selectedRec.type}
+          data={selectedRec.data}
+          onClose={() => setSelectedRec(null)}
+          onUpdated={fetchRecommendations}
+        />
+      )}
+
+      {selectedSession && (
+        <SessionAttendeesModal
+          session={selectedSession}
+          attendees={sessionAttendees}
+          isLoading={isLoadingAttendees}
+          onClose={() => { setSelectedSession(null); setSessionAttendees(null); }}
+        />
+      )}
     </>
   );
 }

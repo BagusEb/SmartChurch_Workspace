@@ -3,20 +3,26 @@ from django.urls import path, include
 
 # Panggil dari folder views masing-masing
 from .views.members_views import MemberViewSet, GuestViewSet, MemberFaceEmbeddingViewSet
-from .views.records_views import TimelineDataRecordViewSet, AttendanceViewSet, SummaryReportViewSet
+from .views.records_views import (
+    TimelineDataRecordViewSet,
+    AttendanceViewSet,
+    SummaryReportViewSet,
+    FollowupMemberViewSet,
+)
 from .views.users_views import UserManageViewSet
 from .views.ai_views import AIConversationViewSet
 
 router = DefaultRouter()
-router.register(r'members', MemberViewSet)
-router.register(r'guests', GuestViewSet)
-router.register(r'face-embeddings', MemberFaceEmbeddingViewSet)
-router.register(r'timeline', TimelineDataRecordViewSet)
-router.register(r'attendance', AttendanceViewSet)
-router.register(r'reports', SummaryReportViewSet)
-router.register(r'manage-users', UserManageViewSet)
-router.register(r'ai-conversations', AIConversationViewSet)
+router.register(r"members", MemberViewSet)
+router.register(r"guests", GuestViewSet)
+router.register(r"face-embeddings", MemberFaceEmbeddingViewSet)
+router.register(r"timeline", TimelineDataRecordViewSet)
+router.register(r"attendance", AttendanceViewSet)
+router.register(r"reports", SummaryReportViewSet)
+router.register(r"manage-users", UserManageViewSet)
+router.register(r"ai-conversations", AIConversationViewSet)
+router.register(r"followup-members", FollowupMemberViewSet)
 
 urlpatterns = [
-    path('', include(router.urls)),
+    path("", include(router.urls)),
 ]

@@ -6,7 +6,6 @@
 // ============================================================
 
 import { useState } from 'react';
-import AIAssistantWidget from './AIAssistantWidget'; 
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -20,6 +19,7 @@ import {
   UserCog,
   UserSearch,
   FileText,
+  BotMessageSquare,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { to: '/validation',  label: 'Validasi AI',      icon: UserSearch      },
   { to: '/report',      label: 'Laporan',          icon: FileText        },
   { to: '/manage-users',label: 'Kelola Pengguna',  icon: UserCog         },
+  { to: '/chat',        label: 'AI Assistant',     icon: BotMessageSquare },
 ];
 
 const PAGE_TITLES = {
@@ -36,8 +37,9 @@ const PAGE_TITLES = {
   '/members':      'Data Jemaat',
   '/attendance':   'Kehadiran (CCTV)',
   '/manage-users': 'Manajemen Pengguna',
-  '/validation': 'Validasi AI',
-  '/report': 'Laporan Kehadiran',
+  '/validation':   'Validasi AI',
+  '/report':       'Laporan Kehadiran',
+  '/chat':         'AI Assistant',
 };
 
 // --- UPDATE 1: Menangkap prop 'role' dari App.jsx ---
@@ -55,7 +57,7 @@ export default function Layout({ role }) {
     if (item.to === '/') return true; // Semua role bisa lihat Dashboard
     
     if (role === 'admin') {
-        return item.to === '/members' || item.to === '/attendance' || item.to === '/validation' || item.to === '/manage-users' || item.to === '/report' ;    }
+        return item.to === '/members' || item.to === '/attendance' || item.to === '/validation' || item.to === '/manage-users' || item.to === '/report' || item.to === '/chat';    }
 
     if (role === 'leader') {
         return item.to === '/report' ;    }
@@ -152,7 +154,7 @@ export default function Layout({ role }) {
 
             {/* --- UPDATE: Mapping dari menu yang sudah di-filter --- */}
             {filteredNavItems.map(({ to, label, icon: Icon }) => {
-              const isActive = pathname === to;
+              const isActive = pathname === to || (to !== '/' && pathname.startsWith(to + '/'));
 
               return (
                 <Link
@@ -237,10 +239,6 @@ export default function Layout({ role }) {
 
           <div className="flex-1 p-8 overflow-auto content-area">
             <Outlet />
-
-            {/* --- WIDGET AI HANYA MUNCUL JIKA ROLE == 'leader' --- */}
-            <AIAssistantWidget />
-
           </div>
         </main>
       </div>

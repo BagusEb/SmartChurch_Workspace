@@ -10,6 +10,7 @@ from .models import (
     AIConversation,
     SummaryReport,
     UserProfile,
+    FollowupMember,
 )
 
 
@@ -44,15 +45,53 @@ class AttendanceSerializer(serializers.ModelSerializer):
 
 
 class AIConversationSerializer(serializers.ModelSerializer):
+    thread_id = serializers.CharField(source='langfuse_threadid', read_only=True)
+
     class Meta:
         model = AIConversation
-        fields = "__all__"
+        fields = ['id', 'user', 'thread_id', 'langfuse_threadid', 'conversation_title', 'created_at', 'last_activity_at']
 
 
 class SummaryReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = SummaryReport
         fields = "__all__"
+
+
+class SummaryReportListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SummaryReport
+        exclude = ["report_summary"]
+
+
+# ================= ATTENDANCE REPORT SERIALIZERS =================
+
+class FollowupMemberDetailSerializer(serializers.ModelSerializer):
+    member_name = serializers.CharField(source='member.full_name', read_only=True)
+    member_id = serializers.IntegerField(source='member.id', read_only=True)
+    member_phone = serializers.CharField(source='member.phone', read_only=True, allow_null=True)
+
+    class Meta:
+        model = FollowupMember
+        fields = [
+            'id', 'member_id', 'member_name', 'member_phone',
+            'status_followup', 'followup_type', 'followup_date',
+            'result_followup', 'explain_followup', 'progress_followup',
+        ]
+
+
+class GuestConversionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Guest
+        fields = ['id', 'full_name', 'phone', 'visit_count', 'first_visit', 'last_visit', 'notes']
+
+
+class SessionSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    total = serializers.IntegerField()
+    member_count = serializers.IntegerField()
+    guest_count = serializers.IntegerField()
+    absent_count = serializers.IntegerField()
 
 
 # ================= CUSTOM JWT SERIALIZER =================

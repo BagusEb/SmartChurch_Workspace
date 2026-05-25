@@ -6,16 +6,35 @@ const THREAD_ID_STORAGE_KEY = 'smartchurch_ai_thread_id';
 const mapBackendMessages = (rawMessages) => {
   if (!Array.isArray(rawMessages)) return [];
 
-  return rawMessages
+  const filtered = rawMessages
     .filter((msg) => msg && msg.data)
-    .filter((msg) => msg.type === 'human' || msg.type === 'ai')
-    .map((msg) => ({
+    .filter((msg) => msg.type === 'human' || msg.type === 'ai');
+
+  const result = [];
+  let pendingToolCalls = [];
+
+  for (const msg of filtered) {
+    const content = msg.data?.content ?? '';
+    const toolCalls = msg.data?.tool_calls ?? [];
+
+    if (msg.type === 'ai' && !content) {
+      pendingToolCalls = [...pendingToolCalls, ...toolCalls];
+      continue;
+    }
+
+    result.push({
       type: msg.type,
-      data: msg.data,
+      data: pendingToolCalls.length > 0
+        ? { ...msg.data, tool_calls: [...pendingToolCalls, ...toolCalls] }
+        : msg.data,
       id: msg.id,
       streaming: false,
+    });
 
-    }));
+    pendingToolCalls = [];
+  }
+
+  return result;
 };
 
 const createAiMessage = ({ content = '', streamId = null, streaming = true } = {}) => ({
@@ -71,8 +90,14 @@ export default function useChat(initialThreadId = null) {
   const [threadId, setThreadId] = useState(initialThreadId);
   const [messages, setMessages] = useState([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [conversationTitle, setConversationTitle] = useState(null);
+  const [canvas, setCanvas] = useState('');
+  const [activeToolCall, setActiveToolCall] = useState(null);
   const hasLoadedHistoryRef = useRef(false);
   const finalMessagesRef = useRef(null);
+  const lastToolCallMessageIdRef = useRef(null);
+  const lastToolCallSignatureRef = useRef(null);
+  const lastCanvasRef = useRef('');
 
   useEffect(() => {
     setThreadId(initialThreadId);
@@ -86,6 +111,9 @@ export default function useChat(initialThreadId = null) {
       setMessages([]);
       hasLoadedHistoryRef.current = false;
       finalMessagesRef.current = null;
+      lastToolCallMessageIdRef.current = null;
+      lastToolCallSignatureRef.current = null;
+      lastCanvasRef.current = '';
       return;
     }
 
@@ -97,7 +125,10 @@ export default function useChat(initialThreadId = null) {
     hasLoadedHistoryRef.current = true;
 
     getChatThread(threadId)
-      .then((payload) => setMessages(mapBackendMessages(payload.messages)))
+      .then((payload) => {
+        setMessages(mapBackendMessages(payload.messages));
+        if (payload.canvas != null) setCanvas(payload.canvas);
+      })
       .catch((err) => {
         console.error(err);
         setMessages([]);
@@ -150,6 +181,9 @@ export default function useChat(initialThreadId = null) {
 
     setMessages((prev) => [...prev, { type: 'human', data: { content: trimmedMessage } }]);
     setIsStreaming(true);
+    setActiveToolCall(null);
+    lastToolCallMessageIdRef.current = null;
+    lastToolCallSignatureRef.current = null;
 
     let buffer = '';
 
@@ -159,36 +193,82 @@ export default function useChat(initialThreadId = null) {
           if (payload?.thread_id) setThreadId(payload.thread_id);
           break;
 
-        case 'messages':
-          try {
-            const newMessages = mapBackendMessages(payload.messages || []);
-            const firstNewMessageId =
-              newMessages.length > 0 ? newMessages[0].id : null;
-
-            const currentMessages = finalMessagesRef.current || [];
-
-            const oldMessagePosition = currentMessages.findIndex(
-              (msg) => msg.id === firstNewMessageId
-            );
-
-            if (oldMessagePosition === -1) {
-              finalMessagesRef.current = [
-                ...currentMessages,
-                ...newMessages,
-              ];
-              break;
+        case 'values':
+          if (payload?.canvas != null) {
+            const nextCanvas = payload.canvas;
+            if (nextCanvas !== lastCanvasRef.current) {
+              lastCanvasRef.current = nextCanvas;
+              setCanvas(nextCanvas);
+            }
+          }
+          if (payload?.messages != null) {
+            const rawMsgs = payload.messages || [];
+            let lastHumanIndex = -1;
+            for (let i = rawMsgs.length - 1; i >= 0; i -= 1) {
+              if (rawMsgs[i]?.type === 'human') {
+                lastHumanIndex = i;
+                break;
+              }
             }
 
-            finalMessagesRef.current = [
-              ...currentMessages.slice(0, oldMessagePosition),
-              ...newMessages,
-            ];
-          } catch (err) {
-            console.error('Failed to sync messages event:', err);
+            let lastAiWithTools = null;
+            let lastAiWithToolsIndex = -1;
+
+            for (let i = rawMsgs.length - 1; i > lastHumanIndex; i -= 1) {
+              const candidate = rawMsgs[i];
+              if (candidate?.type === 'ai' && !candidate?.data?.content && candidate?.data?.tool_calls?.length > 0) {
+                lastAiWithTools = candidate;
+                lastAiWithToolsIndex = i;
+                break;
+              }
+            }
+
+            if (lastAiWithTools) {
+              const tc = lastAiWithTools.data.tool_calls[lastAiWithTools.data.tool_calls.length - 1];
+              const signatureBase = tc?.id || tc?.tool_call_id || tc?.toolCallId || '';
+              const toolCallSignature = lastAiWithTools.id
+                ? `id:${lastAiWithTools.id}`
+                : `sig:${tc?.name || 'tool'}:${signatureBase}:${lastAiWithToolsIndex}`;
+
+              if (toolCallSignature !== lastToolCallSignatureRef.current) {
+                lastToolCallSignatureRef.current = toolCallSignature;
+                lastToolCallMessageIdRef.current = lastAiWithTools.id || null;
+                setActiveToolCall(tc?.name || null);
+              }
+            } else {
+              setActiveToolCall(null);
+            }
+            try {
+              const newMessages = mapBackendMessages(payload.messages || []);
+              const firstNewMessageId =
+                newMessages.length > 0 ? newMessages[0].id : null;
+
+              const currentMessages = finalMessagesRef.current || [];
+
+              const oldMessagePosition = currentMessages.findIndex(
+                (msg) => msg.id === firstNewMessageId
+              );
+
+              if (oldMessagePosition === -1) {
+                finalMessagesRef.current = [
+                  ...currentMessages,
+                  ...newMessages,
+                ];
+                break;
+              }
+
+              finalMessagesRef.current = [
+                ...currentMessages.slice(0, oldMessagePosition),
+                ...newMessages,
+              ];
+            } catch (err) {
+              console.error('Failed to sync messages event:', err);
+            }
           }
           break;
 
         case 'message_chunk': {
+          setActiveToolCall(null);
           const chunk = payload?.content ?? payload?.text ?? '';
           if (!chunk) break;
 
@@ -204,7 +284,12 @@ export default function useChat(initialThreadId = null) {
           break;
         }
 
+        case 'conversation_title':
+          if (payload?.title) setConversationTitle(payload.title);
+          break;
+
         case 'end':
+          setActiveToolCall(null);
           setMessages((prev) => finalizeStreamingMessages(prev));
           setIsStreaming(false);
           break;
@@ -281,9 +366,15 @@ export default function useChat(initialThreadId = null) {
   const resetChat = () => {
     setThreadId(null);
     setMessages([]);
+    setConversationTitle(null);
+    setCanvas('');
     hasLoadedHistoryRef.current = false;
     finalMessagesRef.current = null;
+    lastToolCallMessageIdRef.current = null;
+    lastCanvasRef.current = '';
   };
+
+  const clearCanvas = () => setCanvas('');
 
   return {
     threadId,
@@ -291,6 +382,10 @@ export default function useChat(initialThreadId = null) {
     messages,
     addMessage,
     resetChat,
+    clearCanvas,
     isStreaming,
+    conversationTitle,
+    canvas,
+    activeToolCall,
   };
 }

@@ -1,5 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+@theme {
+  --font-plus-jakarta: 'Plus Jakarta Sans', sans-serif;
+  --animate-row-in: rowIn 0.3s ease both;
+  --animate-overlay-in: overlayIn 0.15s ease;
+  --animate-panel-in: panelIn 0.2s ease;
+}
+
+@keyframes rowIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 @layer base {
 	button {

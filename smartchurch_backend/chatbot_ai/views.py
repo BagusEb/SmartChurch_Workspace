@@ -3,17 +3,18 @@ import json
 import os
 import traceback
 import uuid
-from typing import Annotated, Optional, Literal
-from urllib.parse import quote_plus
-from django.conf import settings
+from typing import Annotated, Optional
+from django.conf import (
+    settings,
+)  # noqa: F401 — used by get_primary_db_connection_string
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from langchain_core.messages import messages_to_dict
 from typing_extensions import TypedDict
 
+from asgiref.sync import sync_to_async
 from cachetools import TTLCache
 from langchain.agents import create_agent
-from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
@@ -22,23 +23,29 @@ from langchain_core.messages import (
     SystemMessage,
 )
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import tool
 from langchain_openrouter import ChatOpenRouter
 from langsmith import traceable
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import Command
+from psycopg_pool import AsyncConnectionPool
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from pydantic import BaseModel
 from rest_framework.renderers import BaseRenderer
-from sqlalchemy import create_engine, text
 
+from .decorators import jwt_required
 from .prompts import (
     GUARDRAIL_AGENT_SYSTEM_PROMPT,
     MAIN_AGENT_SYSTEM_PROMPT,
-    QUERY_POSTGRES_TOOL_DESCRIPTION,
-    GENERATE_SEABORN_PLOT_TOOL_DESCRIPTION,
-    GET_SCHEMA_TOOL_DESCRIPTION,
-    SCHEMA_CATALOG,
+    build_create_title_prompt,
+)
+from .tools import (
+    generate_seaborn_plot,
+    get_schema,
+    query_postgres,
+    update_canvas,
+    clear_canvas,
+    TOOL_NAMES,
 )
 
 # LangSmith tracing — configure from Django settings (moved to settings.py)
@@ -51,7 +58,6 @@ langsmith_endpoint = getattr(
     settings, "LANGSMITH_ENDPOINT", "https://api.smith.langchain.com"
 )
 
-# Ensure the environment variables used by langchain/langsmith integrations are set
 if langsmith_api_key:
     os.environ["LANGSMITH_API_KEY"] = langsmith_api_key
 if langsmith_project:
@@ -69,45 +75,23 @@ MAX_CACHE_SIZE = 100
 GUARDRAIL_NODE_NAME = "guardrail"
 GUARDRAIL_VIOLATION_NODE_NAME = "guardrail_violation"
 MAIN_NODE_NAME = "main"
-MAX_CHAT_MEMORY = 20
+
 # ---------------------------------------------------------------------------
 # Caches
 # ---------------------------------------------------------------------------
 
-conversation_message_cache: TTLCache = TTLCache(
+conversation_state_cache: TTLCache = TTLCache(
     maxsize=MAX_CACHE_SIZE, ttl=CHAT_CACHE_TTL_SECONDS
 )
 
 # ---------------------------------------------------------------------------
-# DB engines
+# DB connection
 # ---------------------------------------------------------------------------
-
-_primary_engine = None
-_ai_readonly_engine = None
 
 
 def get_primary_db_connection_string() -> str:
     db = settings.DATABASES["default"]
     return f"postgresql://{db.get('USER')}:{db.get('PASSWORD')}@{db.get('HOST', 'localhost')}:{db.get('PORT', '5432')}/{db.get('NAME')}"
-
-
-def get_ai_readonly_db_connection_string() -> str:
-    db = settings.DATABASES["default"]
-    user = quote_plus(str(os.getenv("AI_DB_USER", db.get("USER") or "")))
-    password = quote_plus(str(os.getenv("AI_DB_PASSWORD", db.get("PASSWORD") or "")))
-    host = db.get("HOST", "localhost")
-    port = db.get("PORT", "5432")
-    name = db.get("NAME")
-    return f"postgresql://{user}:{password}@{host}:{port}/{name}"
-
-
-def get_ai_readonly_engine():
-    global _ai_readonly_engine
-    if _ai_readonly_engine is None:
-        _ai_readonly_engine = create_engine(
-            get_ai_readonly_db_connection_string(), pool_pre_ping=True
-        )
-    return _ai_readonly_engine
 
 
 # ---------------------------------------------------------------------------
@@ -137,340 +121,51 @@ def create_thread_id() -> str:
     return str(uuid.uuid4())
 
 
-def build_initial_graph_state(
-    previous_messages: list[BaseMessage], user_message: str
-) -> "GraphState":
+def build_initial_graph_state(user_message: str) -> "GraphState":
     return {
-        "messages": [*previous_messages, HumanMessage(content=user_message)],
+        "messages": [HumanMessage(content=user_message)],
         "guardrail_result": None,
     }
 
 
 def format_sse(event: str, data: object) -> str:
-    """Emit a single SSE event matching the LangGraph Platform protocol."""
-    if event == "end":
-        return "event: end\ndata: null\n\n"
     serialized = json.dumps(data, ensure_ascii=True, default=str)
     return f"event: {event}\ndata: {serialized}\n\n"
 
 
-def get_message_history(session_id: str) -> SQLChatMessageHistory:
-    return SQLChatMessageHistory(
-        connection=get_primary_db_connection_string(),
-        session_id=session_id,
-        table_name="chat_history",
-    )
-
-
-def get_cached_messages(session_id: str) -> list[BaseMessage]:
-    if not isinstance(session_id, str):
-        session_id = str(session_id)
-    cached = conversation_message_cache.get(session_id)
-    if cached is not None:
-        return cached
-    msgs = list(get_message_history(session_id).messages)
-    conversation_message_cache[session_id] = msgs
-    return msgs
-
-
-# ---------------------------------------------------------------------------
-# Tools
-# ---------------------------------------------------------------------------
-
-
-@tool("query_postgres", description=QUERY_POSTGRES_TOOL_DESCRIPTION)
-@traceable(name="query_postgres", run_type="tool")
-def query_postgres(query: str, max_rows: int = 200) -> str:
-    if not query or not query.strip():
-        return "Query is required."
-
-    max_rows = max(1, min(int(max_rows), 1000))
-
+def get_user_id_from_request(request) -> Optional[int]:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
     try:
-        with get_ai_readonly_engine().connect() as conn:
-            all_rows = conn.execute(text(query)).mappings().fetchall()
+        from rest_framework_simplejwt.tokens import AccessToken
 
-        total_rows = len(all_rows)
-        serialized = [dict(row) for row in all_rows[:max_rows]]
-        truncated = total_rows > max_rows
+        token = AccessToken(auth.split(" ")[1])
+        return token["user_id"]
+    except Exception:
+        return None
 
-        response = {
-            "total_rows": total_rows,
-            "returned_rows": len(serialized),
-            "truncated": truncated,
-            "rows": serialized,
-        }
-        if truncated:
-            response["hint"] = (
-                f"Query returned {total_rows} rows but only {max_rows} are shown. "
-                f"Use GROUP BY / aggregation in SQL, or call with max_rows={min(total_rows, 1000)}."
-            )
-        return json.dumps(response, default=str)
-
-    except Exception as e:
-        return f"Database query failed: {e}"
-
-
-@tool("generate_seaborn_plot", description=GENERATE_SEABORN_PLOT_TOOL_DESCRIPTION)
-@traceable(name="generate_seaborn_plot", run_type="tool")
-def generate_seaborn_plot(
-    data_json: str,
-    chart_type: Literal[
-        "bar",
-        "line",
-        "scatter",
-        "pie",
-        "histogram",
-    ],
-    x_col: str,
-    y_col: Optional[str] = None,
-    title: str = "",
-    hue_col: Optional[str] = None,
-    highlight_mode: Optional[
-        Literal[
-            "max",
-            "min",
-            "above_threshold",
-            "top_n",
-        ]
-    ] = None,
-    highlight_threshold: Optional[float] = None,
-    top_n: Optional[int] = None,
-) -> dict:
-    import json
-    import os
-    import uuid
-
-    import matplotlib
-
-    matplotlib.use("Agg")
-
-    import matplotlib.pyplot as plt
-    import pandas as pd
-    import seaborn as sns
-
-    from django.conf import settings
-
-    media_root = getattr(
-        settings,
-        "MEDIA_ROOT",
-        os.path.join(settings.BASE_DIR, "media"),
-    )
-
-    plots_dir = os.path.join(media_root, "ai_plots")
-    os.makedirs(plots_dir, exist_ok=True)
-
-    plot_filename = f"plot_{uuid.uuid4().hex[:8]}.png"
-    plot_path = os.path.join(plots_dir, plot_filename)
-
-    try:
-        data = json.loads(data_json)
-        df = pd.DataFrame(data)
-
-        if df.empty:
-            return {"error": "No data available for plotting."}
-
-        required_cols = [x_col]
-
-        if chart_type not in ["histogram"]:
-            if chart_type != "pie" and not y_col:
-                return {"error": f"{chart_type} chart requires y_col."}
-
-            if y_col:
-                required_cols.append(y_col)
-
-        if hue_col:
-            required_cols.append(hue_col)
-
-        missing_cols = [col for col in required_cols if col not in df.columns]
-
-        if missing_cols:
-            return {"error": f"Missing columns: {', '.join(missing_cols)}"}
-
-        plt.figure(figsize=(10, 6))
-        ax = plt.gca()
-
-        highlight_supported = chart_type in [
-            "bar",
-            "line",
-            "scatter",
-        ]
-
-        colors = None
-
-        if highlight_supported and highlight_mode and y_col:
-            colors = ["lightgray"] * len(df)
-
-            if highlight_mode == "max":
-                idx = df[y_col].idxmax()
-                colors[idx] = "#4C72B0"
-
-            elif highlight_mode == "min":
-                idx = df[y_col].idxmin()
-                colors[idx] = "#C44E52"
-
-            elif (
-                highlight_mode == "above_threshold" and highlight_threshold is not None
-            ):
-                for i, val in enumerate(df[y_col]):
-                    if val > highlight_threshold:
-                        colors[i] = "#4C72B0"
-
-            elif highlight_mode == "top_n" and top_n is not None:
-                top_indices = df[y_col].nlargest(top_n).index
-
-                for idx in top_indices:
-                    colors[idx] = "#4C72B0"
-
-        # BAR
-        if chart_type == "bar":
-
-            if colors:
-                ax.bar(
-                    df[x_col],
-                    df[y_col],
-                    color=colors,
-                )
-            else:
-                sns.barplot(
-                    data=df,
-                    x=x_col,
-                    y=y_col,
-                    hue=hue_col,
-                    ax=ax,
-                )
-
-        # LINE
-        elif chart_type == "line":
-
-            sns.lineplot(
-                data=df,
-                x=x_col,
-                y=y_col,
-                hue=hue_col,
-                ax=ax,
-            )
-
-            if colors:
-                for i in range(len(df)):
-                    ax.scatter(
-                        df[x_col].iloc[i],
-                        df[y_col].iloc[i],
-                        color=colors[i],
-                        s=80,
-                        zorder=5,
-                    )
-
-        # SCATTER
-        elif chart_type == "scatter":
-
-            if colors:
-                ax.scatter(
-                    df[x_col],
-                    df[y_col],
-                    c=colors,
-                    s=80,
-                )
-            else:
-                sns.scatterplot(
-                    data=df,
-                    x=x_col,
-                    y=y_col,
-                    hue=hue_col,
-                    ax=ax,
-                )
-
-        # HISTOGRAM
-        elif chart_type == "histogram":
-
-            sns.histplot(
-                data=df,
-                x=x_col,
-                hue=hue_col,
-                kde=False,
-                ax=ax,
-            )
-
-        # PIE
-        elif chart_type == "pie":
-
-            if len(df) > 10:
-                return {"error": "Pie chart supports maximum 10 categories."}
-
-            plt.pie(
-                df[y_col],
-                labels=df[x_col],
-                autopct="%1.1f%%",
-            )
-
-        else:
-            return {"error": f"Unsupported chart type: {chart_type}"}
-
-        plt.title(title or chart_type.capitalize())
-
-        if chart_type != "pie":
-            plt.xticks(rotation=45, ha="right")
-
-        plt.tight_layout()
-
-        plt.savefig(plot_path)
-        plt.close("all")
-
-        media_url = getattr(
-            settings,
-            "MEDIA_URL",
-            "/media/",
-        )
-
-        server_base = os.getenv(
-            "SERVER_PATH",
-            "http://localhost:8000",
-        )
-
-        full_url = (
-            f"{server_base.rstrip('/')}"
-            f"{media_url.rstrip('/')}"
-            f"/ai_plots/{plot_filename}"
-        )
-
-        return {"image_url": full_url}
-
-    except Exception as e:
-        plt.close("all")
-
-        return {"error": str(e)}
-
-
-@tool("get_schema", description=GET_SCHEMA_TOOL_DESCRIPTION)
-@traceable(name="get_schema", run_type="tool")
-def get_schema(table_name: str) -> str:
-    if not table_name:
-        return "table_name is required."
-    key = str(table_name).strip()
-    schema = SCHEMA_CATALOG.get(key)
-    if not schema:
-        return json.dumps(
-            {
-                "error": f"Unknown table '{key}'.",
-                "available_tables": sorted(SCHEMA_CATALOG.keys()),
-            },
-            ensure_ascii=True,
-        )
-    return json.dumps({"table": key, **schema}, ensure_ascii=True)
-
-
-TOOL_NAMES = [query_postgres.name, generate_seaborn_plot.name, get_schema.name]
 
 # ---------------------------------------------------------------------------
 # LLM
 # ---------------------------------------------------------------------------
 
 llm = ChatOpenRouter(
-    model="openrouter/auto",
+    model="~moonshotai/kimi-latest",
     temperature=0.0,
     streaming=True,
-    plugins=[{"id": "auto-router", "allowed_models": ["openai/*"]}],
-    # reasoning={"effort": "minimal"},
+    # plugins=[
+    #     {
+    #         "id": "auto-router",
+    #         "allowed_models": ["openai/*"],
+    #     }
+    # ],
+)
+llm_not_thinking = ChatOpenRouter(
+    model="~google/gemini-flash-latest",
+    temperature=0.0,
+    streaming=False,
+    reasoning={"effort": "none"},
 )
 
 # ---------------------------------------------------------------------------
@@ -490,31 +185,30 @@ class GuardrailPlan(BaseModel):
 
 class GraphState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
-    # Holds the typed guardrail decision; never serialised into messages.
     guardrail_result: Optional[GuardrailPlan]
+    canvas: Optional[str]
 
 
 # ---------------------------------------------------------------------------
-# Graph (built lazily to respect Django settings init order)
+# Graph (built lazily, shared with checkpointer)
 # ---------------------------------------------------------------------------
 
+_pool: Optional[AsyncConnectionPool] = None
+_checkpointer: Optional[AsyncPostgresSaver] = None
 _compiled_graph = None
+_graph_lock = asyncio.Lock()
 
 
-def get_compiled_graph():
-    global _compiled_graph
-    if _compiled_graph is not None:
-        return _compiled_graph
-
-    # Guardrail LLM returns a GuardrailPlan object directly — no JSON round-trip.
-    guardrail_llm = llm.with_structured_output(GuardrailPlan, method="function_calling")
+def _build_graph():
+    guardrail_llm = llm_not_thinking.with_structured_output(
+        GuardrailPlan, method="function_calling"
+    )
 
     @traceable(name="Guardrail Agent", run_type="chain")
-    def _guardrail_node(state: GraphState) -> Command:
-        plan: GuardrailPlan = guardrail_llm.invoke(
+    async def _guardrail_node(state: GraphState) -> Command:
+        plan: GuardrailPlan = await guardrail_llm.ainvoke(
             [SystemMessage(content=GUARDRAIL_AGENT_SYSTEM_PROMPT), *state["messages"]]
         )
-        # Use Command to update state and route in one step.
         next_node = MAIN_NODE_NAME if plan.allow else GUARDRAIL_VIOLATION_NODE_NAME
         return Command(
             update={"guardrail_result": plan},
@@ -522,11 +216,10 @@ def get_compiled_graph():
         )
 
     def _guardrail_violation_node(state: GraphState) -> Command:
-        """Emit a fixed sorry message when the guardrail blocks the request."""
         sorry = AIMessage(
             content=(
-                "I'm sorry, I can only process requests related to church matters. "
-                "Please ask me something about church attendance, members, or guests."
+                "Maaf, saya hanya dapat memproses permintaan yang terkait dengan urusan gereja. "
+                "Silakan tanyakan sesuatu tentang kehadiran gereja, anggota, atau tamu."
             )
         )
         return Command(
@@ -538,8 +231,15 @@ def get_compiled_graph():
     def _make_main_agent():
         return create_agent(
             model=llm,
-            tools=[query_postgres, generate_seaborn_plot, get_schema],
+            tools=[
+                query_postgres,
+                generate_seaborn_plot,
+                get_schema,
+                update_canvas,
+                clear_canvas,
+            ],
             system_prompt=MAIN_AGENT_SYSTEM_PROMPT,
+            state_schema=GraphState,
             name="Main Agent",
         )
 
@@ -550,45 +250,129 @@ def get_compiled_graph():
     graph.add_node(GUARDRAIL_VIOLATION_NODE_NAME, _guardrail_violation_node)
     graph.add_node(MAIN_NODE_NAME, main_agent)
     graph.set_entry_point(GUARDRAIL_NODE_NAME)
-    # Routing is handled by Command inside _guardrail_node — no conditional edges needed.
     graph.add_edge(GUARDRAIL_VIOLATION_NODE_NAME, END)
     graph.add_edge(MAIN_NODE_NAME, END)
+    return graph
 
-    _compiled_graph = graph.compile()
-    return _compiled_graph
+
+async def get_graph_with_checkpointer():
+    global _pool, _checkpointer, _compiled_graph
+    if _compiled_graph is not None:
+        return _compiled_graph
+    async with _graph_lock:
+        if _compiled_graph is not None:
+            return _compiled_graph
+        _pool = AsyncConnectionPool(
+            conninfo=get_primary_db_connection_string(),
+            open=False,
+            kwargs={"autocommit": True, "prepare_threshold": 0},
+        )
+        await _pool.open()
+        _checkpointer = AsyncPostgresSaver(_pool)
+        await _checkpointer.setup()
+        _compiled_graph = _build_graph().compile(checkpointer=_checkpointer)
+        return _compiled_graph
 
 
 # ---------------------------------------------------------------------------
-# History helpers
+# Async cache + DB helpers
 # ---------------------------------------------------------------------------
 
 
-def _add_to_history_sync(session_id: str, message: BaseMessage):
+async def get_cached_state(session_id: str) -> dict:
     session_id = str(session_id)
-    history = SQLChatMessageHistory(
-        connection=get_primary_db_connection_string(),
-        session_id=session_id,
-        table_name="chat_history",
+    cached = conversation_state_cache.get(session_id)
+    if cached is not None:
+        return cached
+    graph = await get_graph_with_checkpointer()
+    config = RunnableConfig(configurable={"thread_id": session_id})
+    state = await graph.aget_state(config)
+    vals = state.values if state and state.values else {}
+    result = {
+        "messages": vals.get("messages", []),
+        "canvas": vals.get("canvas") or "",
+    }
+    conversation_state_cache[session_id] = result
+    return result
+
+
+async def get_cached_messages(session_id: str) -> list[BaseMessage]:
+    return (await get_cached_state(session_id))["messages"]
+
+
+@sync_to_async
+def _create_ai_conversation_sync(thread_id: str, user_id: int):
+    from django.utils import timezone
+    from attendance.models import AIConversation
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    try:
+        user = User.objects.get(pk=user_id)
+        AIConversation.objects.create(
+            user=user,
+            langfuse_threadid=str(thread_id),
+            last_activity_at=timezone.now(),
+        )
+    except Exception:
+        pass
+
+
+@sync_to_async
+def _update_last_activity_sync(thread_id: str):
+    from django.utils import timezone
+    from attendance.models import AIConversation
+
+    try:
+        conv = AIConversation.objects.get(langfuse_threadid=str(thread_id))
+        conv.last_activity_at = timezone.now()
+        conv.save(update_fields=["last_activity_at"])
+    except AIConversation.DoesNotExist:
+        pass
+    except Exception:
+        pass
+
+
+@sync_to_async
+def _get_conversation_has_title_sync(thread_id: str) -> bool:
+    from attendance.models import AIConversation
+
+    try:
+        conv = AIConversation.objects.get(langfuse_threadid=str(thread_id))
+        return bool(conv.conversation_title)
+    except AIConversation.DoesNotExist:
+        return True  # no record → skip title generation
+    except Exception:
+        return True
+
+
+@sync_to_async
+def _save_conversation_title_sync(thread_id: str, title: str):
+    from django.utils import timezone
+    from attendance.models import AIConversation
+
+    try:
+        conv = AIConversation.objects.get(langfuse_threadid=str(thread_id))
+        conv.conversation_title = title
+        conv.last_activity_at = timezone.now()
+        conv.save(update_fields=["conversation_title", "last_activity_at"])
+    except Exception:
+        pass
+
+
+async def generate_conversation_title(user_message: str) -> str:
+    title_llm = ChatOpenRouter(
+        model="~openai/gpt-mini-latest",
+        temperature=0.0,
+        reasoning={"effort": "none"},
+        streaming=False,
     )
-    history.add_message(message)
-
-    cached = conversation_message_cache.get(session_id)
-
-    if cached is None:
-        # Seed the in-memory cache from the persistent history (includes the new message)
-        try:
-            msgs = list(history.messages)
-            conversation_message_cache[session_id] = msgs
-        except Exception:
-            print(f"Failed to seed cache for session {session_id}")
-    else:
-        temp_cached = list(cached)
-        temp_cached.append(message)
-        conversation_message_cache[session_id] = temp_cached
-
-
-async def add_to_history(session_id: str, message: BaseMessage):
-    await asyncio.to_thread(_add_to_history_sync, session_id, message)
+    prompt = build_create_title_prompt(user_message)
+    try:
+        resp = await title_llm.ainvoke([HumanMessage(content=prompt)])
+        return resp.content.strip()[:200]
+    except Exception:
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -597,12 +381,19 @@ async def add_to_history(session_id: str, message: BaseMessage):
 
 
 @csrf_exempt
+@jwt_required
 async def chat(request, thread_id=None):
     if request.method == "GET":
         if not thread_id:
             return JsonResponse({"error": "thread_id required"}, status=400)
-        messages = get_cached_messages(str(thread_id))
-        return JsonResponse({"messages": messages_to_dict(messages)}, status=200)
+        state = await get_cached_state(str(thread_id))
+        return JsonResponse(
+            {
+                "messages": messages_to_dict(state["messages"]),
+                "canvas": state["canvas"],
+            },
+            status=200,
+        )
 
     elif request.method == "POST":
         body = json.loads(request.body or "{}")
@@ -614,89 +405,138 @@ async def chat(request, thread_id=None):
                 yield format_sse("error", {"message": "No message"})
                 yield format_sse("end", None)
 
-            return StreamingHttpResponse(
+            _err_resp = StreamingHttpResponse(
                 error_stream(), content_type="text/event-stream"
             )
+            _err_resp.is_async = True
+            return _err_resp
 
-        previous_messages = get_cached_messages(thread_id) if thread_id else []
-        # Limit the number of previous messages to avoid exceeding context window
-        previous_messages = previous_messages[-MAX_CHAT_MEMORY:]
-        initial_state = build_initial_graph_state(previous_messages, user_message)
-        graph = get_compiled_graph()
+        graph = await get_graph_with_checkpointer()
+        initial_state = build_initial_graph_state(user_message)
 
         async def event_stream():
             nonlocal thread_id
-            guardrail_denied = False
 
             if not thread_id:
                 thread_id = create_thread_id()
                 yield format_sse("metadata", {"thread_id": str(thread_id)})
+                user_id = get_user_id_from_request(request)
+                if user_id:
+                    await _create_ai_conversation_sync(str(thread_id), user_id)
+                title_needed = True
+            else:
+                await _update_last_activity_sync(str(thread_id))
+                has_title = await _get_conversation_has_title_sync(str(thread_id))
+                title_needed = not has_title
 
-            await add_to_history(thread_id, HumanMessage(content=user_message))
+            # Freeze thread_id before entering tasks (avoids closure mutation)
+            tid = str(thread_id)
+            q: asyncio.Queue = asyncio.Queue()
+            _DONE = object()
 
-            try:
-                async for chunk in graph.astream(
-                    initial_state,
-                    config=RunnableConfig(configurable={"thread_id": thread_id}),
-                    stream_mode=["messages", "values"],
-                    subgraphs=True,
-                    version=["v2"],
-                ):
-                    namespace, stream_type, data = chunk
-                    # print(namespace, stream_type, data, flush=True)
-                    if stream_type == "values" and isinstance(data, dict):
-                        # Check the typed guardrail result directly — no JSON parsing.
-                        plan: Optional[GuardrailPlan] = data.get("guardrail_result")
-                        if plan is not None and not plan.allow:
-                            guardrail_denied = True
+            end_payload = {"status": "done"}
 
-                        if "messages" in data:
-                            new_messages = [
-                                m
-                                for m in data["messages"]
-                                if m not in initial_state["messages"]
-                            ]
-                            yield format_sse(
-                                "messages",
-                                {"messages": messages_to_dict(data["messages"])},
-                            )
-                            for msg in new_messages:
-                                await add_to_history(thread_id, msg)
-                                initial_state["messages"].append(msg)
-
-                    if (
-                        isinstance(namespace, tuple)
-                        and isinstance(data, tuple)
-                        and namespace
-                        and data
-                        and stream_type == "messages"
+            async def graph_worker():
+                guardrail_denied = False
+                last_messages: list = []
+                last_canvas: str = ""
+                try:
+                    config = RunnableConfig(configurable={"thread_id": tid})
+                    async for chunk in graph.astream(
+                        initial_state,
+                        config=config,
+                        stream_mode=["messages", "values"],
+                        subgraphs=True,
                     ):
-                        message = data[0]
-                        if (
-                            isinstance(message, AIMessageChunk)
-                            and MAIN_NODE_NAME in namespace[0]
-                        ):
-                            token = message.content or ""
-                            message_id = message.id or ""
-                            if token:
-                                yield format_sse(
-                                    "message_chunk",
-                                    {"content": token, "id": message_id},
+                        namespace, stream_type, data = chunk
+
+                        if stream_type == "values" and isinstance(data, dict):
+                            plan: Optional[GuardrailPlan] = data.get("guardrail_result")
+                            if plan is not None and not plan.allow:
+                                guardrail_denied = True
+                            if "messages" in data:
+                                last_messages = data["messages"]
+                                canvas_val = data.get("canvas")
+                                if canvas_val is not None:
+                                    last_canvas = canvas_val
+                                await q.put(
+                                    format_sse(
+                                        "values",
+                                        {
+                                            "messages": messages_to_dict(
+                                                data["messages"]
+                                            ),
+                                            "canvas": canvas_val or "",
+                                        },
+                                    )
                                 )
 
-                if not guardrail_denied:
-                    yield format_sse("end", {"status": "done"})
-                else:
-                    yield format_sse("end", {"status": "denied"})
+                        if (
+                            isinstance(namespace, tuple)
+                            and isinstance(data, tuple)
+                            and namespace
+                            and data
+                            and stream_type == "messages"
+                        ):
+                            message = data[0]
+                            if (
+                                isinstance(message, AIMessageChunk)
+                                and MAIN_NODE_NAME in namespace[0]
+                            ):
+                                token = message.content or ""
+                                message_id = message.id or ""
+                                if token:
+                                    await q.put(
+                                        format_sse(
+                                            "message_chunk",
+                                            {"content": token, "id": message_id},
+                                        )
+                                    )
 
-            except Exception as e:
-                traceback.print_exc()
-                yield format_sse("error", {"message": str(e)})
-                yield format_sse("end", None)
+                    if last_messages:
+                        conversation_state_cache[tid] = {
+                            "messages": last_messages,
+                            "canvas": last_canvas,
+                        }
+
+                    end_payload["status"] = "denied" if guardrail_denied else "done"
+
+                except Exception as e:
+                    traceback.print_exc()
+                    await q.put(format_sse("error", {"message": str(e)}))
+                    end_payload["status"] = "error"
+                finally:
+                    await q.put(_DONE)
+
+            async def title_worker():
+                try:
+                    title = await generate_conversation_title(user_message)
+                    if title:
+                        await _save_conversation_title_sync(tid, title)
+                        await q.put(format_sse("conversation_title", {"title": title}))
+                except Exception:
+                    pass
+                finally:
+                    await q.put(_DONE)
+
+            pending = 1 + (1 if title_needed else 0)
+            asyncio.create_task(graph_worker())
+            if title_needed:
+                asyncio.create_task(title_worker())
+
+            while pending > 0:
+                item = await q.get()
+                if item is _DONE:
+                    pending -= 1
+                else:
+                    yield item
+
+            yield format_sse("end", end_payload)
 
         response = StreamingHttpResponse(
             event_stream(), content_type="text/event-stream"
         )
+        response.is_async = True
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response

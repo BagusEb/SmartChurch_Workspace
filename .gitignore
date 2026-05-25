@@ -14,3 +14,4 @@ dist/
 # Database Dump
 .venv
 .vscode
+smartchurch_backend/media/ai_plots/*

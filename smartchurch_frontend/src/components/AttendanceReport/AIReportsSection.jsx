@@ -10,7 +10,7 @@ export default function AIReportsSection({ savedReports, isLoadingReports, openR
 
   return (
     <div className="bg-white shadow-sm border border-slate-100 rounded-2xl overflow-hidden">
-      <div className="flex sm:flex-row flex-col sm:items-center gap-3 px-5 py-4 border-slate-100 border-b">
+      <div className="flex sm:flex-row flex-col sm:items-center sm:justify-between gap-3 px-5 py-4 border-slate-100 border-b">
         <div className="flex items-center gap-2.5">
           <div className="flex justify-center items-center bg-linear-to-br from-indigo-500 to-purple-500 rounded-xl w-8 h-8 shrink-0">
             <Bot size={15} className="text-white" />

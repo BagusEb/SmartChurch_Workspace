@@ -46,4 +46,5 @@ urlpatterns = [
         name="chat_thread_with_id",
     ),
     *medias,
+    *static(settings.STATIC_URL, document_root=settings.STATIC_ROOT),
 ]

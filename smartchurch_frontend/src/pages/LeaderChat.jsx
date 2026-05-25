@@ -180,12 +180,12 @@ export default function LeaderChat() {
         <Panel
           panelRef={canvasPanelRef}
           id="canvas"
-          defaultSize={"30%"}
-          minSize={"20%"}
-          maxSize={"60%"}
+          defaultSize={isDesktop ? "30%" : "0"}
+          minSize={isDesktop ? "20%" : "0"}
+          maxSize={isDesktop ? "60%" : "0"}
           collapsible
           collapsedSize={0}
-          className={`flex flex-col bg-white border-slate-100 border-l ${isDesktop ? '' : 'hidden'}`}
+          className={`flex flex-col bg-white border-slate-100 border-l`}
         >
           <AICanvasPanel canvas={canvas} onClose={() => setCanvasOpen(false)} onClear={clearCanvas} />
         </Panel>

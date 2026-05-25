@@ -15,3 +15,4 @@ dist/
 .venv
 .vscode
 smartchurch_backend/media/ai_plots/*
+smartchurch_backend/staticfiles/*

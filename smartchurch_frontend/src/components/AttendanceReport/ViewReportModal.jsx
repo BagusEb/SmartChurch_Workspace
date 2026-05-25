@@ -1,48 +1,19 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import MarkdownRenderer from '../MarkdownRenderer';
+import { downloadMarkdownAsPdf, extractReportTitle } from '../../utils/MarkdownToPDF';
 import { Bot, X, Download, Loader2 } from 'lucide-react';
 
 export default function ViewReportModal({ report, isLoading, content, onClose, formatDate }) {
-  const contentRef = useRef(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
   const handleDownloadPDF = async () => {
-    if (!contentRef.current) return;
+    if (!content) return;
     setIsDownloading(true);
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import('html2canvas-pro'),
-        import('jspdf'),
-      ]);
-      const canvas = await html2canvas(contentRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-      });
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const margin = 12;
-      const contentW = pageW - margin * 2;
-      const imgH = (canvas.height * contentW) / canvas.width;
-
-      let y = margin;
-      let remaining = imgH;
-      let srcY = 0;
-      while (remaining > 0) {
-        const sliceH = Math.min(remaining, pageH - margin * 2);
-        const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = (sliceH * canvas.width) / contentW;
-        const ctx = sliceCanvas.getContext('2d');
-        ctx.drawImage(canvas, 0, srcY * (canvas.width / contentW), canvas.width, sliceCanvas.height, 0, 0, sliceCanvas.width, sliceCanvas.height);
-        pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', margin, y, contentW, sliceH);
-        remaining -= sliceH;
-        srcY += sliceH;
-        if (remaining > 0) { pdf.addPage(); y = margin; }
-      }
-      pdf.save(`Laporan_AI_${report.report_start_date}_${report.report_end_date}.pdf`);
+      const baseTitle = report
+        ? `Laporan_AI_${report.report_start_date}_${report.report_end_date}`
+        : extractReportTitle(content);
+      await downloadMarkdownAsPdf(content, baseTitle);
     } finally {
       setIsDownloading(false);
     }
@@ -88,7 +59,7 @@ export default function ViewReportModal({ report, isLoading, content, onClose, f
               <p className="text-slate-400 text-sm">Memuat isi laporan...</p>
             </div>
           ) : (
-            <div ref={contentRef}>
+            <div>
               <MarkdownRenderer proseClass="prose prose-sm max-w-none prose-slate">
                 {content ?? ''}
               </MarkdownRenderer>

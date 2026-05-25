@@ -2,37 +2,17 @@ import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Download, Maximize2, X } from 'lucide-react';
+import { downloadFile } from '../service/apiClient';
 import { useState, useEffect } from 'react';
 
 
 const MarkdownImage = ({ src, alt }) => {
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (!src) return;
     const fallbackName = alt ? `${alt}.png` : 'image.png';
-
-    try {
-      const response = await fetch(src);
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-
-      const link = document.createElement('a');
-      link.href = objectUrl;
-      link.download = fallbackName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      URL.revokeObjectURL(objectUrl);
-    } catch (error) {
-      const link = document.createElement('a');
-      link.href = src;
-      link.download = fallbackName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
+    downloadFile(src, fallbackName);
   };
 
   useEffect(() => {

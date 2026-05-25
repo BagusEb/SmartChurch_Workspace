@@ -19,6 +19,12 @@ const flushRefreshQueue = (error, token = null) => {
 };
 
 const isAuthEndpoint = (url = '') => url.includes('/token/') || url.includes('token/');
+const getFilenameFromDisposition = (disposition = '') => {
+  if (!disposition) return null;
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+  const raw = match?.[1] || match?.[2];
+  return raw ? decodeURIComponent(raw) : null;
+};
 
 apiClient.interceptors.request.use((config) => {
   if (config.skipAuth) return config;
@@ -84,21 +90,16 @@ apiClient.interceptors.response.use(
 // --- Auth ---
 export const loginUser = async (credentials) => await apiClient.post('/token/', credentials);
 
-// --- Video Feed ---
 export const getVideoFeedUrl = () => `${apiClient.defaults.baseURL}video_feed/`;
 
-const getFilenameFromDisposition = (headerValue) => {
-  if (!headerValue) return '';
-  const match = headerValue.match(/filename\*?=(?:UTF-8''|"?)([^";\n]+)/i);
-  if (!match) return '';
-  return decodeURIComponent(match[1]).trim();
-};
 
 export const downloadFile = async (url, filename = 'download') => {
   if (!url) return;
 
   try {
-    const client = url.startsWith('http') ? axios : apiClient;
+    const baseUrl = apiClient.defaults.baseURL || '';
+    const isSameOriginAbsolute = url.startsWith(baseUrl);
+    const client = url.startsWith('http') && !isSameOriginAbsolute ? axios : apiClient;
     const response = await client.get(url, {
       responseType: 'blob',
       headers: { Accept: '*/*' },
@@ -206,7 +207,6 @@ export const updateGuest = async (id, data) => {
 
 // Chat API
 export const getConversations = async () => await apiClient.get('/ai-conversations/');
-export const getChatHistory = async (threadId) => await apiClient.get(`/chat/history/${threadId}/`);
 export const getChatThread = async (threadId) => {
   const response = await apiClient.get(`/chat/${threadId}/`, {
     headers: { Accept: 'application/json' },

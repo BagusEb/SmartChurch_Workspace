@@ -14,9 +14,12 @@ export default function SessionsListSection({ sessions, isLoading, onSessionClic
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
 
-  const filtered = sessions.filter(s =>
-    formatSessionDate(s.date).toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = sessions.filter(s => {
+    const searchLower = search.toLowerCase();
+    const dateMatch = formatSessionDate(s.date).toLowerCase().includes(searchLower);
+    const nameMatch = s.session_name?.toLowerCase().includes(searchLower) ?? false;
+    return dateMatch || nameMatch;
+  });
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -93,10 +96,10 @@ export default function SessionsListSection({ sessions, isLoading, onSessionClic
                 const eligible = session.member_count + (session.absent_count ?? 0);
                 const memberPct = eligible > 0 ? Math.round((session.member_count / eligible) * 100) : 0;
                 return (
-                  <tr key={session.date} className="hover:bg-slate-50/60 transition-colors">
+                  <tr key={session.session_id || session.date} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-5 py-3.5">
                       <p className="font-semibold text-slate-700 text-sm">{formatSessionDate(session.date)}</p>
-                      <p className="mt-0.5 text-slate-400 text-xs">Ibadah Jemaat</p>
+                      <p className="mt-0.5 text-slate-400 text-xs">{session.session_name || 'Ibadah Jemaat'}</p>
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex flex-col gap-1">

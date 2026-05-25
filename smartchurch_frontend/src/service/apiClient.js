@@ -226,6 +226,26 @@ export const streamChatResponse = async ({ threadId, message }) => {
   });
 };
 
+// ============================================================
+//  WORSHIP SESSION API ENDPOINTS
+// ============================================================
 
+// Starts a new session and returns the session_id
+export const startWorshipSession = async (sessionName) => {
+  // 👇 HAPUS /api di depannya
+  const response = await apiClient.post('/worship-sessions/start_session/', { 
+    session_name: sessionName 
+  });
+  return response.data;
+};
+
+// Ends an active session using its session_id
+export const endWorshipSession = async (sessionId) => {
+  // 👇 HAPUS /api di depannya
+  const response = await apiClient.post('/worship-sessions/end_session/', { 
+    session_id: sessionId 
+  });
+  return response.data;
+};
 
 export default apiClient;

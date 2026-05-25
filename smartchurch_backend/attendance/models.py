@@ -16,10 +16,8 @@ class UserProfile(models.Model):
 
     class Meta:
         db_table = 't_user_role'
-        
     def __str__(self):
         return f"{self.user.username} - {self.role}"
-    
 
 # Otomatis membuatkan Profile kosong tiap kali kamu bikin akun User baru
 @receiver(post_save, sender=User)
@@ -35,19 +33,16 @@ def save_user_profile(sender, instance, **kwargs):
 # ==========================================
 # 1. PROFIL & MASTER DATA
 # ==========================================
-
 class Member(models.Model):
     GENDER_CHOICES = (
         ('L', 'Laki-laki'),
         ('P', 'Perempuan'),
     )
-
     STATUS_CHOICES = (
         ('active', 'Active'),
         ('inactive', 'Inactive'),
         ('moved', 'Moved'),
     )
-
     full_name = models.CharField(max_length=100)
     nickname = models.CharField(max_length=100, blank=True, null=True)
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES)
@@ -65,7 +60,6 @@ class Member(models.Model):
 
     class Meta:
         db_table = 'tm_member' # Memaksa nama tabel sesuai ERD
-
     def __str__(self):
         return self.full_name
 
@@ -82,97 +76,84 @@ class Guest(models.Model):
         null=True,
         blank=True
     )
-    face_encoding = models.TextField(blank=True, null=True)
+    #Tambah face_image byte
+    face_image = models.BinaryField(blank=True, null=True)
+    face_encoding = models.JSONField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 't_guest'
-
     def __str__(self):
         return self.full_name
 
 
 class MemberFaceEmbedding(models.Model):
     member = models.ForeignKey(Member, on_delete=models.CASCADE)
-    face_encoding = models.TextField()
-    image_path = models.CharField(max_length=255, blank=True, null=True)
+    face_encoding = models.JSONField()  #textfild kita ubah ke json fild, karena isinya langsung vector
+    face_image = models.BinaryField(blank=True, null=True) #ganti ke bollean karena kita langsung store ke database
     is_active = models.BooleanField(default=True)
-    notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 't_member_face_embedding'
 
-
 # ==========================================
 # 2. TRANSIT & VALIDASI (TIMELINE RECORD)
 # ==========================================
-
 class TimelineDataRecord(models.Model):
     DETECTION_STATUS = (
         ('recognized', 'Recognized'),
         ('ambiguous', 'Ambiguous'),
-        ('guest', 'Guest'),
-        ('impossible', 'Impossible'),
+        ('unkown', 'Unknown')
+        #('impossible', 'Impossible'), #ini ga ada ya
     )
-
     VALIDATION_STATUS = (
         ('pending', 'Pending'),
         ('verified', 'Verified'),
         ('rejected', 'Rejected'),
         ('guest_confirmed', 'Guest Confirmed'),
     )
-
     capture_time = models.DateTimeField()
-    image_path = models.CharField(max_length=255, blank=True, null=True)
-    face_encoding = models.TextField(blank=True, null=True)
-
+    face_image = models.BinaryField(blank=True, null=True) #langsung image karena sepakat store ke database ganti nama face_image
+    face_encoding = models.JSONField(blank=True, null=True) 
     detection_status = models.CharField(max_length=50, choices=DETECTION_STATUS)
     confidence = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
-
-    matched_member = models.ForeignKey(
+    matched_member = models.ForeignKey( 
         Member,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='ai_matches'
     )
-
     validation_status = models.CharField(
         max_length=50,
         choices=VALIDATION_STATUS,
         default='pending'
     )
-
     validated_at = models.DateTimeField(blank=True, null=True)
-
-    final_member = models.ForeignKey(
+    final_member = models.ForeignKey( 
         Member,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='final_validations'
     )
-
-    final_guest = models.ForeignKey(
+    final_guest = models.ForeignKey( 
         Guest,
         on_delete=models.SET_NULL,
         null=True,
         blank=True
     )
-
     notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 't_timlinedata_record'
 
-
 # ==========================================
 # 3. FINAL ABSENSI
 # ==========================================
-
 class Attendance(models.Model):
     member = models.ForeignKey(
         Member,
@@ -180,19 +161,16 @@ class Attendance(models.Model):
         null=True,
         blank=True
     )
-
-    guest = models.ForeignKey(
+    guest = models.ForeignKey( 
         Guest,
         on_delete=models.SET_NULL,
         null=True,
         blank=True
     )
-
     facedetection = models.OneToOneField(
         TimelineDataRecord, # Relasi sudah dirubah ke model yang baru
         on_delete=models.CASCADE
     )
-
     attendance_date = models.DateField()
     check_in_time = models.DateTimeField()
     confidence = models.DecimalField(max_digits=5, decimal_places=2)
@@ -202,11 +180,9 @@ class Attendance(models.Model):
     class Meta:
         db_table = 't_attendance'
 
-
 # ==========================================
 # 4. USER & AI CONVERSATION
 # ==========================================
-
 class AIConversation(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     langfuse_threadid = models.CharField(max_length=100, blank=True, null=True)
@@ -217,11 +193,9 @@ class AIConversation(models.Model):
     class Meta:
         db_table = 't_aiconversation'
 
-
 # ==========================================
 # 5. SUMMARY REPORT
 # ==========================================
-
 class SummaryReport(models.Model):
     report_date = models.DateField(unique=True)
     total_members = models.IntegerField(default=0)
@@ -236,3 +210,4 @@ class SummaryReport(models.Model):
 
     def __str__(self):
         return f"Summary for {self.report_date}"
+

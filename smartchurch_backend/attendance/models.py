@@ -68,6 +68,18 @@ class Member(models.Model):
     def __str__(self):
         return self.full_name
 
+class WorshipSession(models.Model):
+    session_name = models.CharField(max_length=255)
+    date = models.DateField()
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=50, default='active')
+
+    class Meta:
+        db_table = 't_attendance_session'
+
+    def __str__(self):
+        return self.session_name
 
 class FollowupMember(models.Model):
     STATUS_CHOICES = [
@@ -214,6 +226,15 @@ class Attendance(models.Model):
         TimelineDataRecord,  # Relasi sudah dirubah ke model yang baru
         on_delete=models.CASCADE,
     )
+    
+    session = models.ForeignKey(
+        WorshipSession, 
+        on_delete=models.CASCADE, 
+        related_name='attendances', 
+        null=True, 
+        blank=True
+    )
+
     attendance_date = models.DateField()
     check_in_time = models.DateTimeField()
     confidence = models.DecimalField(max_digits=5, decimal_places=2)

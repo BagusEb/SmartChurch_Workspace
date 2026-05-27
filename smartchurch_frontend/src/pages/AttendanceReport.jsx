@@ -5,10 +5,12 @@ import {
   generateYearlyReport,
   getReportDetail,
   getFollowUpRecommendations,
+  generateFollowUpRecommendations,
   getGuestConversionRecommendations,
   getSessions,
   getSessionAttendees,
 } from '../service/apiClient';
+
 import { FileText, Download, Filter, Users, TrendingUp, CheckCircle } from 'lucide-react';
 import StatCard from '../components/AttendanceReport/StatCard';
 import AIReportsSection from '../components/AttendanceReport/AIReportsSection';
@@ -49,6 +51,8 @@ export default function AttendanceReport() {
   const [guestConversions, setGuestConversions] = useState([]);
   const [isLoadingRecs, setIsLoadingRecs] = useState(true);
   const [selectedRec, setSelectedRec] = useState(null); // { type: 'followup'|'guest', data }
+  const [isSyncingFollowUps, setIsSyncingFollowUps] = useState(false);
+  const [followUpSyncMessage, setFollowUpSyncMessage] = useState('');
 
   // Sessions
   const [sessions, setSessions] = useState([]);
@@ -120,6 +124,42 @@ export default function AttendanceReport() {
       setIsLoadingRecs(false);
     }
   }, []);
+
+  const getTodayLocalDateString = () => {
+    const now = new Date();
+    const timezoneOffset = now.getTimezoneOffset() * 60000;
+    const localDate = new Date(now.getTime() - timezoneOffset);
+    return localDate.toISOString().slice(0, 10);
+  };
+
+  const handleSyncFollowUps = async () => {
+    if (isSyncingFollowUps) return;
+
+    setIsSyncingFollowUps(true);
+    setFollowUpSyncMessage('');
+
+    try {
+      const result = await generateFollowUpRecommendations(getTodayLocalDateString());
+
+      await fetchRecommendations();
+
+      setFollowUpSyncMessage(
+        result?.message ||
+          `Sync selesai. ${result?.created_count || 0} rekomendasi follow-up baru dibuat.`
+      );
+    } catch (error) {
+      console.error('Failed to generate follow-up recommendations:', error);
+
+      const backendMessage =
+        error?.response?.data?.error ||
+        error?.response?.data?.detail ||
+        'Gagal sync rekomendasi follow-up. Coba lagi.';
+
+      setFollowUpSyncMessage(backendMessage);
+    } finally {
+      setIsSyncingFollowUps(false);
+    }
+  };
 
   useEffect(() => { fetchSavedReports(); }, [fetchSavedReports]);
   useEffect(() => { fetchRecommendations(); }, [fetchRecommendations]);
@@ -244,6 +284,9 @@ export default function AttendanceReport() {
           followUps={followUps}
           guestConversions={guestConversions}
           isLoading={isLoadingRecs}
+          isSyncingFollowUps={isSyncingFollowUps}
+          followUpSyncMessage={followUpSyncMessage}
+          onSyncFollowUps={handleSyncFollowUps}
           onSelectFollowUp={(item) => setSelectedRec({ type: 'followup', data: item })}
           onSelectGuest={(item) => setSelectedRec({ type: 'guest', data: item })}
         />

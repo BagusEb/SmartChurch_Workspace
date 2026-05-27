@@ -1,0 +1,232 @@
+[2026-05-15 13:24:11] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-15 13:24:14] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-15 13:24:14] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 13:24:15] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 13:24:15] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 13:24:15] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 13:24:19] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | timeline_id=5 | attendance BARU
+[2026-05-15 13:49:08] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-15 13:49:16] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-15 13:49:16] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 13:49:18] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 13:49:18] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 13:49:18] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 13:49:26] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 13:49:58] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 13:50:26] INFO     cv_attendance.cv_engine: DB writer thread selesai.
+[2026-05-15 13:50:29] INFO     cv_attendance.cv_engine: Camera thread selesai.
+[2026-05-15 13:50:29] INFO     cv_attendance.cv_engine: Session dihentikan.
+[2026-05-15 13:53:32] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-15 13:53:39] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-15 13:53:39] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 13:53:41] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 13:53:41] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 13:53:41] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 13:53:48] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 13:54:04] INFO     cv_attendance.cv_engine: DB writer thread selesai.
+[2026-05-15 13:54:07] INFO     cv_attendance.cv_engine: Session dihentikan.
+[2026-05-15 13:54:10] INFO     cv_attendance.cv_engine: Camera thread selesai.
+[2026-05-15 13:54:13] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 13:54:14] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 13:54:14] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 13:54:14] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 13:54:21] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 13:54:58] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 13:54:59] INFO     cv_attendance.cv_engine: DB writer thread selesai.
+[2026-05-15 13:55:02] INFO     cv_attendance.cv_engine: Session dihentikan.
+[2026-05-15 13:55:05] INFO     cv_attendance.cv_engine: Camera thread selesai.
+[2026-05-15 14:19:53] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-15 14:20:01] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-15 14:20:01] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 14:20:03] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 14:20:03] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 14:20:03] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 14:20:10] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:20:45] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:20:55] INFO     cv_attendance.cv_engine: DB writer thread selesai.
+[2026-05-15 14:20:58] INFO     cv_attendance.cv_engine: Session dihentikan.
+[2026-05-15 14:20:59] INFO     cv_attendance.cv_engine: Camera thread selesai.
+[2026-05-15 14:25:52] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-15 14:26:00] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-15 14:26:00] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 14:26:01] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 14:26:01] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 14:26:01] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 14:26:09] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:26:43] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:27:18] INFO     cv_attendance.cv_engine: DB writer thread selesai.
+[2026-05-15 14:27:20] INFO     cv_attendance.cv_engine: Camera thread selesai.
+[2026-05-15 14:27:20] INFO     cv_attendance.cv_engine: Session dihentikan.
+[2026-05-15 14:27:32] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 14:27:34] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 14:27:34] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 14:27:34] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 14:27:40] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:27:45] INFO     cv_attendance.cv_engine: DB writer thread selesai.
+[2026-05-15 14:27:46] INFO     cv_attendance.cv_engine: Camera thread selesai.
+[2026-05-15 14:27:47] INFO     cv_attendance.cv_engine: Session dihentikan.
+[2026-05-15 14:39:23] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-15 14:39:31] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-15 14:39:32] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 14:39:33] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 14:39:33] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 14:39:33] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 14:39:47] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:40:18] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:40:52] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:41:14] INFO     cv_attendance.cv_engine: DB writer thread selesai.
+[2026-05-15 14:41:16] INFO     cv_attendance.cv_engine: Camera thread selesai.
+[2026-05-15 14:41:16] INFO     cv_attendance.cv_engine: Session dihentikan.
+[2026-05-15 14:41:24] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 14:41:25] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 14:41:25] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 14:41:25] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 14:41:33] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:42:04] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:42:35] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 14:42:39] INFO     cv_attendance.cv_engine: DB writer thread selesai.
+[2026-05-15 14:42:42] INFO     cv_attendance.cv_engine: Session dihentikan.
+[2026-05-15 14:42:42] INFO     cv_attendance.cv_engine: Camera thread selesai.
+[2026-05-15 15:02:13] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-15 15:02:14] INFO     cv_attendance.cv_engine: Camera thread dimulai.
+[2026-05-15 15:02:14] INFO     cv_attendance.cv_engine: DB writer thread dimulai.
+[2026-05-15 15:02:14] INFO     cv_attendance.cv_engine: Session dimulai. 8 embedding dimuat.
+[2026-05-15 15:02:22] INFO     cv_attendance.cv_engine: KNOWN saved: member_id=1 | attendance hari ini sudah ada, skip
+[2026-05-15 15:02:27] INFO     cv_attendance.cv_engine: DB writer thread selesai.
+[2026-05-15 15:02:29] INFO     cv_attendance.cv_engine: Session dihentikan.
+[2026-05-15 15:02:29] INFO     cv_attendance.cv_engine: Camera thread selesai.
+[2026-05-25 23:56:12] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-25 23:56:19] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-25 23:56:20] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-25 23:57:06] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-25 23:57:09] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-25 23:57:09] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 00:08:41] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 00:08:46] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 00:08:46] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 00:17:41] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 00:17:45] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 00:17:45] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 00:20:55] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 00:20:59] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 00:20:59] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 00:21:00] ERROR    cv_attendance.views.viewscvAttendance: Start session failed: Gagal membuat Worship Session: relation "t_attendance_session" does not exist
+LINE 1: INSERT INTO "t_attendance_session" ("session_name", "date", ...
+                    ^
+[2026-05-26 00:25:33] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 00:25:36] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 00:25:36] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 10:25:35] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 10:25:39] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 10:25:40] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 10:25:40] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=1 | 'Ibadah Raya Sabat'
+[2026-05-26 10:25:40] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 2 attendance rows untuk session_id=1
+[2026-05-26 10:25:41] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-26 10:25:41] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-26 10:25:41] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=1 | 8 embedding dimuat.
+[2026-05-26 10:25:48] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=23 | session_id=1
+[2026-05-26 10:27:28] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-26 10:27:29] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-26 10:27:29] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 1 ditutup
+[2026-05-26 10:27:29] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-05-26 10:30:13] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 10:30:13] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=2 | 'Ibadah Raya Sabat'
+[2026-05-26 10:30:13] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 2 attendance rows untuk session_id=2
+[2026-05-26 10:30:15] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-26 10:30:15] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-26 10:30:15] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=2 | 8 embedding dimuat.
+[2026-05-26 10:30:31] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=31 | session_id=2
+[2026-05-26 10:31:32] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-26 10:31:35] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-26 10:31:35] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 2 ditutup
+[2026-05-26 10:31:35] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-05-26 11:01:57] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 11:02:05] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 11:02:05] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 11:02:05] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=3 | 'Ibadah Raya Sabat'
+[2026-05-26 11:02:05] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 2 attendance rows untuk session_id=3
+[2026-05-26 11:02:07] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-26 11:02:07] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-26 11:02:07] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=3 | 8 embedding dimuat.
+[2026-05-26 11:02:14] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=33 | session_id=3
+[2026-05-26 11:03:00] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-26 11:03:03] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-26 11:03:03] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 3 ditutup
+[2026-05-26 11:03:03] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-05-26 14:49:25] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 14:49:34] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 14:49:34] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 14:49:34] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=4 | 'Ibadah Raya Sabat'
+[2026-05-26 14:49:34] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 2 attendance rows untuk session_id=4
+[2026-05-26 14:49:36] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-26 14:49:36] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-26 14:49:36] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=4 | 8 embedding dimuat.
+[2026-05-26 14:49:51] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=36 | session_id=4
+[2026-05-26 14:50:59] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-26 14:51:03] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 4 ditutup
+[2026-05-26 14:51:03] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-05-26 14:51:06] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-26 14:56:47] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 14:56:56] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 14:56:56] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 14:56:56] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=5 | 'Ibadah Raya Sabat'
+[2026-05-26 14:56:56] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 2 attendance rows untuk session_id=5
+[2026-05-26 14:56:58] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-26 14:56:58] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-26 14:56:58] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=5 | 8 embedding dimuat.
+[2026-05-26 14:57:12] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=43 | session_id=5
+[2026-05-26 14:58:05] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-26 14:58:09] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 5 ditutup
+[2026-05-26 14:58:09] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-05-26 14:58:12] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-26 16:34:05] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 16:34:13] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 16:34:14] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 16:34:14] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=6 | 'Ibadah Raya Sabat'
+[2026-05-26 16:34:14] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 2 attendance rows untuk session_id=6
+[2026-05-26 16:34:16] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-26 16:34:16] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-26 16:34:16] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=6 | 8 embedding dimuat.
+[2026-05-26 16:34:31] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=49 | session_id=6
+[2026-05-26 16:34:40] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-26 16:34:44] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 6 ditutup
+[2026-05-26 16:34:45] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-05-26 16:34:45] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-26 18:54:35] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 18:54:44] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 18:54:44] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 18:54:44] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=7 | 'Ibadah Sabtu Sore'
+[2026-05-26 18:54:44] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 2 attendance rows untuk session_id=7
+[2026-05-26 18:54:48] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-26 18:54:48] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-26 18:54:48] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Sabtu Sore' dimulai. session_id=7 | 8 embedding dimuat.
+[2026-05-26 18:55:14] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=52 | session_id=7
+[2026-05-26 18:56:42] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-26 18:56:46] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 7 ditutup
+[2026-05-26 18:56:46] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Sabtu Sore' dihentikan.
+[2026-05-26 18:56:49] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-26 19:05:51] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 19:05:59] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 19:06:00] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 19:06:00] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=8 | 'Ibadah Sabtu Sore'
+[2026-05-26 19:06:00] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 2 attendance rows untuk session_id=8
+[2026-05-26 19:06:02] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-26 19:06:02] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-26 19:06:02] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Sabtu Sore' dimulai. session_id=8 | 8 embedding dimuat.
+[2026-05-26 19:06:34] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-26 19:06:38] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 8 ditutup
+[2026-05-26 19:06:38] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Sabtu Sore' dihentikan.
+[2026-05-26 19:06:38] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-26 23:31:23] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-26 23:31:31] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-26 23:31:31] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-26 23:31:31] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=9 | 'Ibadah Raya Sabat'
+[2026-05-26 23:31:31] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 2 attendance rows untuk session_id=9
+[2026-05-26 23:31:33] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-26 23:31:33] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-26 23:31:33] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=9 | 8 embedding dimuat.
+[2026-05-26 23:31:41] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=63 | session_id=9
+[2026-05-26 23:32:13] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-26 23:32:17] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 9 ditutup
+[2026-05-26 23:32:17] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-05-26 23:32:24] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.

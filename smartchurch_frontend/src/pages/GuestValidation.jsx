@@ -1,655 +1,1174 @@
-// ============================================================
-//  GuestValidation.jsx  (v2 — with member linking modal)
-//  Admin validation queue for ambiguous AI face detections.
-//  Features: quick actions, dynamic button layout, and a modal
-//  for linking an unknown face to an existing or new member.
-//  All API logic, state, and handlers are preserved.
-// ============================================================
+//pages/GuestValidation.jsx
 
-// ── React hooks
-import { useState, useEffect } from 'react';
-import { getAllMembers, createMember, addFaceToMember } from '../service/apiClient';
-
-// ── HTTP client
-import axios from 'axios';
-
-// ── Icons
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
-  CheckCircle, XCircle, AlertTriangle, Clock,
-  UserSearch, X, Save, Search, PlusCircle,
-  UserCheck, ScanFace, ShieldCheck, Users,
-} from 'lucide-react';
+  AlertTriangle,
+  CheckCircle,
+  Loader2,
+  ShieldCheck,
+} from "lucide-react";
+
+import {
+  getValidationAiSessions,
+  getValidationAiMemberGuestData,
+  verifyValidationAiRecord,
+  rejectValidationAiRecord,
+  findValidationAiGuestByAi,
+  confirmValidationAiGuest,
+  addValidationAiMemberFace,
+} from "../service/apiClient";
+
+import { findMemberName } from "../components/validationAI/validationHelpers";
+
+import SessionCard from "../components/validationAI/SessionCard";
+import ValidationRow from "../components/validationAI/ValidationRow";
+import FacePreviewModal from "../components/validationAI/FacePreviewModal";
+import {
+  VerifyModal,
+  GuestModal,
+  MemberModal,
+  RejectModal,
+} from "../components/validationAI/ActionModals";
 
 export default function GuestValidation() {
-
-  // ── Pending CCTV capture items sourced from t_timlinedata_record (status = 'pending')
-  const [pendingValidations, setPendingValidations] = useState([
-    { id: 101, capture_time: '09:15:22', image_url: 'https://ui-avatars.com/api/?name=Unknown&background=e2e8f0&color=94a3b8&size=150', ai_guess: 'Bagus Eka',       confidence: 75.5, status: 'pending' },
-    { id: 102, capture_time: '09:18:05', image_url: 'https://ui-avatars.com/api/?name=Guest&background=e2e8f0&color=94a3b8&size=150',   ai_guess: 'Tidak Dikenali', confidence: 40.2, status: 'pending' },
-  ]);
-
-  // ── Full member list fetched from Django (used to populate the dropdown)
+  // ─── Data dari backend ───────────────────────────────────────────
+  const [validationSessions, setValidationSessions] = useState([]);
   const [allMembers, setAllMembers] = useState([]);
+  const [allGuests, setAllGuests] = useState([]);
 
-  // Fetch all registered members on mount
-// Fetch all registered members on mount
-  useEffect(() => {
-    const fetchMembers = async () => {
-      try {
-        // Cukup panggil fungsinya, nggak perlu ngetik URL dan response.data lagi!
-        const data = await getAllMembers(); 
-        setAllMembers(data);
-      } catch (error) {
-        console.error("Failed to fetch members:", error);
-      }
-    };
-    fetchMembers();
-  }, []);
+  // ─── Loading & Error ─────────────────────────────────────────────
+  const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+  const [sessionError, setSessionError] = useState(null);
 
-  // ── Modal state
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedFace, setSelectedFace] = useState(null);
-  const [activeTab, setActiveTab] = useState('existing');
+  // ─── Session & Row State ──────────────────────────────────────────
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [expandedRows, setExpandedRows] = useState({});
+  const [selectedFaces, setSelectedFaces] = useState({});
 
-  // ── New member form fields
-  const [formData, setFormData] = useState({
-    full_name: '', nickname: '', gender: 'L',
-    birth_date: '', phone: '', email: '', address: '',
+  // ─── Modal & Toast ────────────────────────────────────────────────
+  const [modal, setModal] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
+
+  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+
+  // ─── Guest Modal State ────────────────────────────────────────────
+  const [guestSearchName, setGuestSearchName] = useState("");
+  const [selectedGuestId, setSelectedGuestId] = useState("");
+  const [aiRecommendedGuest, setAiRecommendedGuest] = useState(null);
+  const [isFindingGuestByAi, setIsFindingGuestByAi] = useState(false);
+
+  const [showGuestForm, setShowGuestForm] = useState(false);
+  const [guestForm, setGuestForm] = useState({
+    full_name: "",
+    phone: "",
+    from_where: "",
   });
 
-  // Generic input change handler for new member form
-  const handleInputChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  // ─── Member Modal State ───────────────────────────────────────────
+  const [memberMode, setMemberMode] = useState("existing");
+  const [memberSearch, setMemberSearch] = useState("");
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [memberForm, setMemberForm] = useState({
+    full_name: "",
+    nickname: "",
+    gender: "L",
+    birth_date: "",
+    phone: "",
+    email: "",
+    address: "",
+  });
 
-  // ============================================================
-  //  QUICK ACTION HANDLER (verify / guest / reject)
-  // ============================================================
-  const handleQuickAction = (id, actionType) => {
-    const labels = { verify: 'Verifikasi', guest: 'Tamu', reject: 'Tolak' };
-    if (window.confirm(`Proses data ini sebagai: ${labels[actionType]}?`)) {
-      setPendingValidations(prev => prev.filter(item => item.id !== id));
-    }
-  };
-
-  // ============================================================
-  //  MODAL HANDLERS
-  // ============================================================
-
-  // Opens the face-linking modal for an unknown detection
-  const handleOpenAddModal = (faceItem) => {
-    setSelectedFace(faceItem);
-    setIsModalOpen(true);
-    setActiveTab('existing');
-  };
-
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setSelectedFace(null);
-  };
-
-  // Saves the face — either links to existing member or creates a new one
-const handleSaveFace = async () => {
+  // ─── Verify Modal State ───────────────────────────────────────────
+  const [verifyMode, setVerifyMode] = useState("ai"); // ai | manual
+  const [verifyMemberSearch, setVerifyMemberSearch] = useState("");
+  const [selectedVerifyMemberId, setSelectedVerifyMemberId] = useState("");
+  // ─── Fetch Sessions ───────────────────────────────────────────────
+  const fetchSessions = useCallback(async () => {
+    setIsLoadingSessions(true);
+    setSessionError(null);
     try {
-      if (activeTab === 'new') {
-        // Scenario 1: create a new member record with this face
-        const payload = {
-          ...formData,
-          face_image_url: selectedFace.image_url,
-        };
-        
-        // --- MEMAKAI FUNGSI API CLIENT KITA ---
-        const response = await createMember(payload);
-        
-        if (response.status === 201 || response.status === 200) {
-          alert(`Berhasil! Jemaat baru (${formData.full_name}) telah masuk ke Database!`);
-        }
+      const data = await getValidationAiSessions();
+      if (data?.success && Array.isArray(data.sessions)) {
+        setValidationSessions(data.sessions);
       } else {
-        // Scenario 2: link this face to an existing member
-        const memberSelect = document.querySelector('select[data-member-select]');
-        const selectedMemberId = memberSelect ? memberSelect.value : null;
-        
-        if (!selectedMemberId) {
-          alert("Tolong pilih nama jemaat terlebih dahulu!");
-          return;
-        }
-        
-        // --- MEMAKAI FUNGSI API CLIENT KITA ---
-        const response = await addFaceToMember(selectedMemberId, selectedFace.image_url);
-        
-        if (response.status === 200) {
-          alert(`Berhasil! Wajah telah diikat ke jemaat ID ${selectedMemberId}.`);
-        }
+        setValidationSessions([]);
+      }
+    } catch (error) {
+      console.error("Gagal fetch validation sessions:", error);
+      setSessionError("Gagal memuat data sesi. Coba refresh halaman.");
+      setValidationSessions([]);
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  }, []);
+
+  // ─── Fetch Members + Guests (untuk search dropdown) ───────────────
+  const fetchMembersAndGuests = useCallback(async (q = "") => {
+    try {
+      const data = await getValidationAiMemberGuestData(q);
+      if (data?.success) {
+        setAllMembers(data.members || []);
+        setAllGuests(data.guests || []);
+      }
+    } catch (error) {
+      console.error("Gagal fetch member/guest data:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSessions();
+    fetchMembersAndGuests(); // load semua data awal (tanpa filter)
+  }, [fetchSessions, fetchMembersAndGuests]);
+
+  // ─── Computed ─────────────────────────────────────────────────────
+  const totalPending = useMemo(() => {
+    return validationSessions.reduce(
+      (sum, item) => sum + Number(item.summary?.total_pending || 0),
+      0
+    );
+  }, [validationSessions]);
+
+  const activeSession = useMemo(() => {
+    return validationSessions.find(
+      (item) => item.session.id === activeSessionId
+    );
+  }, [validationSessions, activeSessionId]);
+
+  const activeRows = useMemo(() => {
+    if (!activeSession) return [];
+
+    const ambiguousRows = (activeSession.ambiguous_records || []).map(
+      (record) => ({
+        rowKey: `ambiguous-${record.id}`,
+        type: "ambiguous",
+        label: `Ambiguous #${record.id}`,
+        count: 1,
+        records: [record],
+        recordIds: [record.id],
+        confidence: record.confidence,
+        matchedMemberId: record.matched_member_id,
+        matchedMemberName:
+          record.matched_member_name ||
+          findMemberName(allMembers, record.matched_member_id) ||
+          "Jemaat kandidat",
+        aiRecommendation: record.ai_recommendation || {
+          member_id: record.matched_member_id,
+          full_name:
+            record.matched_member_name ||
+            findMemberName(allMembers, record.matched_member_id) ||
+            "Jemaat kandidat",
+          similarity: record.confidence,
+          note: "Kandidat paling mendekati dari hasil recognition AI",
+        },
+      })
+    );
+
+    const unknownRows = (activeSession.unknown_people_groups || []).map(
+      (group, index) => ({
+        rowKey: `unknown-${group.group_id || index}`,
+        type: "unknown",
+        label: group.label || `People ${index + 1}`,
+        helper: `${group.count || group.records?.length || 0} wajah dari orang yang sama`,
+        count: group.count || group.records?.length || 0,
+        records: group.records || [],
+        recordIds:
+          group.record_ids || (group.records || []).map((r) => r.id),
+        confidence: group.average_confidence,
+        representativeImage: group.representative_image,
+        aiRecommendation: group.ai_recommendation || null,
+      })
+    );
+
+    return [...ambiguousRows, ...unknownRows];
+  }, [activeSession, allMembers]);
+
+  // ─── Filter member & guest client-side ───────────────────────────
+  const filteredMembers = useMemo(() => {
+    const keyword = memberSearch.trim().toLowerCase();
+    if (!keyword) return allMembers;
+
+    return allMembers.filter((m) => {
+      const name = String(m.full_name || "").toLowerCase();
+      const nick = String(m.nickname || "").toLowerCase();
+      const phone = String(m.phone || "").toLowerCase();
+      return name.includes(keyword) || nick.includes(keyword) || phone.includes(keyword);
+    });
+  }, [allMembers, memberSearch]);
+
+  const filteredVerifyMembers = useMemo(() => {
+    const keyword = verifyMemberSearch.trim().toLowerCase();
+
+    if (!keyword) return allMembers;
+
+    return allMembers.filter((m) => {
+      const name = String(m.full_name || "").toLowerCase();
+      const nick = String(m.nickname || "").toLowerCase();
+      const phone = String(m.phone || "").toLowerCase();
+      const email = String(m.email || "").toLowerCase();
+
+      return (
+        name.includes(keyword) ||
+        nick.includes(keyword) ||
+        phone.includes(keyword) ||
+        email.includes(keyword)
+      );
+    });
+  }, [allMembers, verifyMemberSearch]);
+
+  const filteredGuests = useMemo(() => {
+    const keyword = guestSearchName.trim().toLowerCase();
+    if (!keyword) return [];
+
+    return allGuests
+      .filter((g) => {
+        const name = String(g.full_name || "").toLowerCase();
+        const phone = String(g.phone || "").toLowerCase();
+        const from = String(g.from_where || "").toLowerCase();
+
+        return (
+          name.includes(keyword) ||
+          phone.includes(keyword) ||
+          from.includes(keyword)
+        );
+      })
+      .slice(0, 12);
+  }, [allGuests, guestSearchName]);
+
+  // ─── Toast ────────────────────────────────────────────────────────
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    window.setTimeout(() => setToast(null), 2800);
+  };
+
+  // ─── Session Controls ─────────────────────────────────────────────
+  const openSession = (sessionId) => {
+    setActiveSessionId(sessionId);
+    setExpandedRows({});
+    setSelectedFaces({});
+  };
+
+  const closeSession = () => {
+    setActiveSessionId(null);
+    setExpandedRows({});
+    setSelectedFaces({});
+  };
+
+  // ─── Row Controls ─────────────────────────────────────────────────
+  const toggleRow = (rowKey) => {
+    setExpandedRows((prev) => ({ ...prev, [rowKey]: !prev[rowKey] }));
+  };
+
+  const isFaceSelected = (rowKey, recordId) =>
+    selectedFaces[rowKey]?.includes(recordId);
+
+  const toggleFaceSelection = (row, record) => {
+    const rowKey = row.rowKey;
+    setSelectedFaces((prev) => {
+      const current = prev[rowKey] || [];
+      if (row.type === "ambiguous") return { ...prev, [rowKey]: [record.id] };
+      if (current.includes(record.id))
+        return { ...prev, [rowKey]: current.filter((id) => id !== record.id) };
+      return { ...prev, [rowKey]: [...current, record.id] };
+    });
+  };
+
+  const getSelectedRecords = (row) => {
+    if (!row) return [];
+    if (row.type === "ambiguous") return row.records;
+    const ids = selectedFaces[row.rowKey] || [];
+    return row.records.filter((r) => ids.includes(r.id));
+  };
+
+  const ensureAtLeastOneFace = (row, actionName) => {
+    if (row.type === "ambiguous") return true;
+    const selected = getSelectedRecords(row);
+    if (selected.length === 0) {
+      showToast(`Pilih minimal satu gambar sebelum ${actionName}.`, "warning");
+      return false;
+    }
+    return true;
+  };
+
+  const ensureExactlyOneFaceForGuest = (row) => {
+    if (row.type === "ambiguous") return true;
+    const selected = getSelectedRecords(row);
+    if (selected.length === 0) {
+      showToast("Pilih satu gambar untuk dijadikan Tamu.", "warning");
+      return false;
+    }
+    if (selected.length > 1) {
+      showToast("Untuk action Tamu, hanya boleh pilih 1 gambar.", "warning");
+      return false;
+    }
+    return true;
+  };
+
+  // ─── Remove validated row dari state lokal ─────────────────────────
+  const removeValidatedRows = (sessionId, row) => {
+    setValidationSessions((prev) => {
+      return prev
+        .map((sessionItem) => {
+          if (sessionItem.session.id !== sessionId) return sessionItem;
+
+          let nextUnknownGroups = sessionItem.unknown_people_groups || [];
+          let nextAmbiguousRecords = sessionItem.ambiguous_records || [];
+
+          if (row.type === "ambiguous") {
+            nextAmbiguousRecords = nextAmbiguousRecords.filter(
+              (r) => r.id !== row.records[0]?.id
+            );
+          }
+          if (row.type === "unknown") {
+            nextUnknownGroups = nextUnknownGroups.filter(
+              (g) => `unknown-${g.group_id}` !== row.rowKey
+            );
+          }
+
+          const totalUnknownRecords = nextUnknownGroups.reduce(
+            (sum, g) => sum + Number(g.count || g.records?.length || 0),
+            0
+          );
+          const nextTotalPending =
+            nextAmbiguousRecords.length + totalUnknownRecords;
+
+          return {
+            ...sessionItem,
+            summary: {
+              ...sessionItem.summary,
+              total_pending: nextTotalPending,
+              total_unknown_people_groups: nextUnknownGroups.length,
+              total_unknown_records: totalUnknownRecords,
+              total_ambiguous_records: nextAmbiguousRecords.length,
+            },
+            unknown_people_groups: nextUnknownGroups,
+            ambiguous_records: nextAmbiguousRecords,
+          };
+        })
+        .filter((s) => s.summary.total_pending > 0);
+    });
+
+    setModal(null);
+    setExpandedRows((prev) => {
+      const c = { ...prev };
+      delete c[row.rowKey];
+      return c;
+    });
+    setSelectedFaces((prev) => {
+      const c = { ...prev };
+      delete c[row.rowKey];
+      return c;
+    });
+  };
+
+  // ─── Modal openers ────────────────────────────────────────────────
+  const openVerifyModal = (row) => {
+    setVerifyMode("ai");
+    setVerifyMemberSearch("");
+    setSelectedVerifyMemberId("");
+
+    setModal({
+      type: "verify",
+      row,
+      sessionId: activeSessionId,
+    });
+  };
+
+  const openGuestModal = (row) => {
+    if (!ensureExactlyOneFaceForGuest(row)) return;
+
+    setGuestSearchName("");
+    setSelectedGuestId("");
+    setAiRecommendedGuest(null);
+    setShowGuestForm(false);
+    setGuestForm({ full_name: "", phone: "", from_where: "" });
+
+    setModal({ type: "guest", row, sessionId: activeSessionId });
+  };
+
+
+  const resetMemberModalState = () => {
+    setMemberMode("existing");
+    setMemberSearch("");
+    setSelectedMemberId("");
+    setMemberForm({
+      full_name: "",
+      nickname: "",
+      gender: "L",
+      birth_date: "",
+      phone: "",
+      email: "",
+      address: "",
+    });
+  };
+
+  const openRealAddMemberModal = (row) => {
+    resetMemberModalState();
+    setModal({ type: "member", row, sessionId: activeSessionId });
+  };
+
+  const openAddMemberModal = (row) => {
+    if (row.type === "ambiguous") {
+      openRealAddMemberModal(row);
+      return;
+    }
+
+  const selected = getSelectedRecords(row);
+
+  if (selected.length === 0) {
+    showToast("Pilih minimal satu gambar sebelum menambahkan ke Jemaat.", "warning");
+    return;
+  }
+
+  if (selected.length === 1) {
+    setModal({
+      type: "member-single-face-confirm",
+      row,
+      sessionId: activeSessionId,
+    });
+    return;
+  }
+
+  openRealAddMemberModal(row);
+};
+  const openRejectModal = (row) =>
+    setModal({ type: "reject", row, sessionId: activeSessionId });
+
+  // ─── Modal confirm handlers ───────────────────────────────────────
+  const handleConfirmVerify = async () => {
+    if (!modal?.row || isSubmittingAction) return;
+
+    const row = modal.row;
+    const recommendation = row.aiRecommendation;
+
+    if (verifyMode === "ai" && !recommendation?.member_id && !row.matchedMemberId) {
+      showToast(
+        "Rekomendasi AI tidak memiliki member. Pilih jemaat secara manual.",
+        "warning"
+      );
+      return;
+    }
+
+    if (verifyMode === "manual" && !selectedVerifyMemberId) {
+      showToast("Pilih jemaat tujuan terlebih dahulu.", "warning");
+      return;
+    }
+
+    const finalMemberId =
+      verifyMode === "manual"
+        ? selectedVerifyMemberId
+        : recommendation?.member_id || row.matchedMemberId;
+
+    const finalMember =
+      allMembers.find((member) => String(member.id) === String(finalMemberId)) ||
+      null;
+
+    const selectedRecords = getSelectedRecords(row);
+
+    const payload = {
+      session_id: modal.sessionId,
+      member_id: Number(finalMemberId),
+      record_ids: row.recordIds || row.records.map((record) => record.id),
+    };
+
+    /*
+      Untuk unknown group:
+      - Backend bisa otomatis pilih center record dari confidence tertinggi.
+      - Kalau user memilih tepat 1 gambar sebelum klik Verify, kita kirim sebagai center_record_id.
+      - Kalau user tidak memilih / memilih lebih dari 1, backend fallback pilih confidence tertinggi.
+    */
+    if (row.type === "unknown" && selectedRecords.length === 1) {
+      payload.center_record_id = selectedRecords[0].id;
+    }
+
+    setIsSubmittingAction(true);
+
+    try {
+      const result = await verifyValidationAiRecord(payload);
+
+      if (!result?.success) {
+        showToast(result?.message || "Verifikasi gagal diproses.", "warning");
+        return;
       }
 
-      // Clean up: remove from queue, close modal, reset form (BAWAAN ASLI MU AMAN!)
-      setPendingValidations(prev => prev.filter(item => item.id !== selectedFace.id));
-      handleCloseModal();
-      setFormData({ full_name: '', nickname: '', gender: 'L', birth_date: '', phone: '', email: '', address: '' });
+      showToast(
+        `${row.label} berhasil diverifikasi sebagai ${
+          result?.member?.full_name || finalMember?.full_name || "jemaat"
+        }.`
+      );
 
+      removeValidatedRows(modal.sessionId, row);
+
+      /*
+        Optional refresh agar data benar-benar sinkron dengan backend.
+        Kalau tidak mau reload list, baris ini boleh dihapus.
+      */
+      fetchSessions();
     } catch (error) {
-      console.error("DJANGO ERROR DETAIL:", error.response?.data);
-      alert("Gagal menyimpan! Cek Console (F12) untuk detail errornya.");
+      console.error("Gagal verifikasi AI:", error);
+
+      const backendMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        "Gagal memproses verifikasi. Coba lagi.";
+
+      showToast(backendMessage, "warning");
+    } finally {
+      setIsSubmittingAction(false);
     }
   };
 
-  // ── Determines if the AI failed to identify a face
-  const isUnknown = (item) =>
-    item.ai_guess === 'Tidak Dikenali' || item.ai_guess.toLowerCase().includes('guest');
+  const handleFindGuestByAi = async () => {
+    if (!modal?.row || isFindingGuestByAi || isSubmittingAction) return;
 
-  // ── Returns confidence colour tokens
-  const confScheme = (c) => {
-    if (c >= 75) return { bar: '#f59e0b', pill: 'bg-amber-50 text-amber-700' };
-    if (c >= 50) return { bar: '#f97316', pill: 'bg-orange-50 text-orange-700' };
-    return          { bar: '#f43f5e', pill: 'bg-rose-50 text-rose-700' };
+    const selectedRecords = getSelectedRecords(modal.row);
+
+    if (selectedRecords.length !== 1) {
+      showToast("Pilih tepat 1 gambar untuk Find by AI.", "warning");
+      return;
+    }
+
+    const selectedRecord = selectedRecords[0];
+
+    const payload = {
+      session_id: modal.sessionId,
+      record_id: selectedRecord.id,
+    };
+
+    setIsFindingGuestByAi(true);
+
+    try {
+      const result = await findValidationAiGuestByAi(payload);
+
+      if (!result?.success) {
+        showToast(result?.message || "Find by AI gagal dijalankan.", "warning");
+        return;
+      }
+
+      const recommendation = result?.recommendation;
+
+      if (!recommendation) {
+        setAiRecommendedGuest(null);
+        setSelectedGuestId("");
+        showToast(result?.message || "AI belum menemukan tamu yang cocok.", "warning");
+        return;
+      }
+
+      setAiRecommendedGuest(recommendation);
+      setSelectedGuestId(recommendation.id);
+      setGuestSearchName(recommendation.full_name || "");
+      setShowGuestForm(false);
+
+      showToast(
+        result?.found
+          ? `AI merekomendasikan ${recommendation.full_name}.`
+          : `Kandidat ditemukan: ${recommendation.full_name}, tetapi similarity masih rendah.`,
+        result?.found ? "success" : "warning"
+      );
+    } catch (error) {
+      console.error("Gagal Find Guest by AI:", error);
+
+      const backendMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        "Gagal menjalankan Find by AI.";
+
+      showToast(backendMessage, "warning");
+    } finally {
+      setIsFindingGuestByAi(false);
+    }
   };
 
-  // Shared input style for modal forms
-  const inputCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 focus:outline-none transition-all placeholder:text-slate-400";
-  const labelCls = "block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5";
+  const handleConfirmGuest = async () => {
+    if (!modal?.row || isSubmittingAction) return;
 
-  // ============================================================
-  //  RENDER
-  // ============================================================
+    const row = modal.row;
+    const selectedRecords = getSelectedRecords(row);
+
+    if (selectedRecords.length !== 1) {
+      showToast("Pilih tepat 1 gambar untuk disimpan sebagai Tamu.", "warning");
+      return;
+    }
+
+    const selectedRecord = selectedRecords[0];
+
+    let payload = {
+      session_id: modal.sessionId,
+      record_id: selectedRecord.id,
+      record_ids: row.recordIds || row.records.map((record) => record.id),
+    };
+
+    if (showGuestForm) {
+      if (!guestForm.full_name.trim()) {
+        showToast("Nama tamu wajib diisi.", "warning");
+        return;
+      }
+
+      payload = {
+        ...payload,
+        mode: "new",
+        guest: {
+          full_name: guestForm.full_name.trim(),
+          phone: guestForm.phone.trim(),
+          from_where: guestForm.from_where.trim(),
+        },
+      };
+    } else {
+      if (!selectedGuestId) {
+        showToast(
+          "Pilih tamu lama dari hasil pencarian, gunakan Find by AI, atau isi Tamu Baru.",
+          "warning"
+        );
+        return;
+      }
+
+      payload = {
+        ...payload,
+        mode: "existing",
+        source_guest_id: Number(selectedGuestId),
+      };
+    }
+
+    setIsSubmittingAction(true);
+
+    try {
+      const result = await confirmValidationAiGuest(payload);
+
+      if (!result?.success) {
+        showToast(result?.message || "Gagal menyimpan data tamu.", "warning");
+        return;
+      }
+
+      showToast(
+        `${row.label} berhasil disimpan sebagai tamu ${
+          result?.guest?.full_name ? result.guest.full_name : ""
+        }.`.trim()
+      );
+
+      /*
+        Ambiguous:
+        - row hilang karena record sudah guest_confirmed.
+
+        Unknown group:
+        - selected record guest_confirmed.
+        - record lain rejected oleh backend.
+        - jadi satu group ini juga selesai dan hilang dari pending list.
+      */
+      removeValidatedRows(modal.sessionId, row);
+
+      fetchSessions();
+      fetchMembersAndGuests();
+    } catch (error) {
+      console.error("Gagal confirm guest:", error);
+
+      const backendMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        "Gagal menyimpan data tamu. Coba lagi.";
+
+      showToast(backendMessage, "warning");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
+  const handleConfirmMember = async () => {
+    if (!modal?.row || isSubmittingAction) return;
+
+    const row = modal.row;
+    const selectedRecords = getSelectedRecords(row);
+
+    if (row.type === "unknown" && selectedRecords.length === 0) {
+      showToast("Pilih minimal satu gambar untuk ditambahkan ke data Jemaat.", "warning");
+      return;
+    }
+
+    const recordsForEmbedding =
+      row.type === "ambiguous" ? row.records : selectedRecords;
+
+    if (recordsForEmbedding.length === 0) {
+      showToast("Tidak ada gambar yang bisa diproses.", "warning");
+      return;
+    }
+
+    if (memberMode === "existing" && !selectedMemberId) {
+      showToast("Pilih jemaat terdaftar terlebih dahulu.", "warning");
+      return;
+    }
+
+    if (memberMode === "new" && !memberForm.full_name.trim()) {
+      showToast("Nama lengkap jemaat baru wajib diisi.", "warning");
+      return;
+    }
+
+    const payload = {
+      session_id: modal.sessionId,
+      mode: memberMode,
+      record_ids: row.recordIds || row.records.map((record) => record.id),
+      selected_record_ids: recordsForEmbedding.map((record) => record.id),
+    };
+
+    if (memberMode === "existing") {
+      payload.member_id = Number(selectedMemberId);
+    } else {
+      payload.member = {
+        full_name: memberForm.full_name.trim(),
+        nickname: memberForm.nickname.trim(),
+        gender: memberForm.gender || "L",
+        birth_date: memberForm.birth_date || "",
+        phone: memberForm.phone.trim(),
+        email: memberForm.email.trim(),
+        address: memberForm.address.trim(),
+      };
+    }
+
+    setIsSubmittingAction(true);
+
+    try {
+      const result = await addValidationAiMemberFace(payload);
+
+      if (!result?.success) {
+        showToast(result?.message || "Gagal menambahkan wajah jemaat.", "warning");
+        return;
+      }
+
+      const totalEmbeddings =
+        result?.embedding_ids?.length ||
+        result?.embeddings?.length ||
+        recordsForEmbedding.length;
+
+      showToast(
+        `${row.label} berhasil ditambahkan ke ${
+          result?.member?.full_name || "jemaat"
+        } dengan ${totalEmbeddings} data wajah.`
+      );
+
+      removeValidatedRows(modal.sessionId, row);
+
+      fetchSessions();
+      fetchMembersAndGuests();
+    } catch (error) {
+      console.error("Gagal tambah wajah member:", error);
+
+      const backendMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        "Gagal menambahkan wajah jemaat. Coba lagi.";
+
+      showToast(backendMessage, "warning");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
+  const handleConfirmReject = async () => {
+    if (!modal?.row || isSubmittingAction) return;
+
+    const row = modal.row;
+
+    const payload = {
+      session_id: modal.sessionId,
+      record_ids: row.recordIds || row.records.map((record) => record.id),
+    };
+
+    setIsSubmittingAction(true);
+
+    try {
+      const result = await rejectValidationAiRecord(payload);
+
+      if (!result?.success) {
+        showToast(result?.message || "Reject gagal diproses.", "warning");
+        return;
+      }
+
+      showToast(`${row.label} berhasil ditolak.`);
+
+      removeValidatedRows(modal.sessionId, row);
+
+      /*
+        Optional: refresh dari backend agar list validasi benar-benar sinkron.
+        Boleh dihapus kalau kamu mau hanya update local state.
+      */
+      fetchSessions();
+    } catch (error) {
+      console.error("Gagal reject validation AI:", error);
+
+      const backendMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        "Gagal memproses reject. Coba lagi.";
+
+      showToast(backendMessage, "warning");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
+  // ─── Render ───────────────────────────────────────────────────────
   return (
     <>
-      {/* ── Global styles ── */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
         .gv-root { font-family: 'Plus Jakarta Sans', sans-serif; }
-
-        /* Card entrance */
-        .gv-card { animation: gvCard 0.35s ease both; }
-        @keyframes gvCard {
-          from { opacity: 0; transform: translateY(12px) scale(0.97); }
-          to   { opacity: 1; transform: translateY(0)    scale(1); }
+        .gv-enter { animation: gvEnter 0.28s ease both; }
+        @keyframes gvEnter {
+          from { opacity: 0; transform: translateY(10px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
         }
-
-        /* Bottom gradient over card image */
-        .gv-img::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(to bottom, transparent 45%, rgba(0,0,0,0.65));
-          pointer-events: none;
+        .gv-modal-backdrop { animation: gvBackdrop 0.18s ease both; }
+        @keyframes gvBackdrop { from { opacity: 0; } to { opacity: 1; } }
+        .gv-modal { animation: gvModal 0.24s cubic-bezier(0.34,1.45,0.64,1) both; }
+        @keyframes gvModal {
+          from { opacity: 0; transform: translateY(22px) scale(0.96); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
         }
-
-        /* Scan line on image when hovered */
-        .gv-card:hover .gv-scan {
-          animation: gvScan 2.5s linear infinite;
+        .gv-scroll::-webkit-scrollbar { height: 7px; width: 7px; }
+        .gv-scroll::-webkit-scrollbar-track { background: transparent; }
+        .gv-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+        .gv-face-card { scroll-snap-align: start; }
+        .gv-soft-grid {
+          background-image: radial-gradient(circle at 1px 1px, rgba(99,102,241,0.12) 1px, transparent 0);
+          background-size: 20px 20px;
         }
-        .gv-scan {
-          position: absolute; inset-x: 0; height: 2px; top: 0;
-          background: linear-gradient(90deg, transparent, rgba(99,240,180,0.5), transparent);
-          animation: none;
-          pointer-events: none; z-index: 5;
-        }
-        @keyframes gvScan {
-          from { transform: translateY(0); }
-          to   { transform: translateY(192px); }
-        }
-
-        /* Corner brackets — appear on hover */
-        .gv-corner { position: absolute; width: 14px; height: 14px; border-color: rgba(99,240,180,0.6); border-style: solid; opacity: 0; transition: opacity 0.25s ease; z-index: 6; }
-        .gv-card:hover .gv-corner { opacity: 1; }
-        .gv-corner.tl { top: 10px; left: 10px; border-width: 2px 0 0 2px; }
-        .gv-corner.tr { top: 10px; right: 10px; border-width: 2px 2px 0 0; }
-        .gv-corner.bl { bottom: 10px; left: 10px; border-width: 0 0 2px 2px; }
-        .gv-corner.br { bottom: 10px; right: 10px; border-width: 0 2px 2px 0; }
-
-        /* Action button hover glows */
-        .act-verify:hover { box-shadow: 0 0 0 3px rgba(16,185,129,0.2); }
-        .act-add:hover    { box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
-        .act-guest:hover  { box-shadow: 0 0 0 3px rgba(99,102,241,0.2); }
-        .act-reject:hover { box-shadow: 0 0 0 3px rgba(244,63,94,0.2);  }
-
-        /* Confidence bar */
-        .conf-fill { transition: width 0.7s cubic-bezier(0.4,0,0.2,1); }
-
-        /* Modal backdrop + spring */
-        .gv-backdrop { animation: gvBD 0.2s ease; }
-        @keyframes gvBD { from { opacity: 0; } to { opacity: 1; } }
-        .gv-modal { animation: gvMod 0.28s cubic-bezier(0.34,1.5,0.64,1); }
-        @keyframes gvMod {
-          from { opacity: 0; transform: scale(0.93) translateY(24px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0); }
-        }
-
-        /* Tab switch fade */
-        .tab-panel { animation: tabFade 0.2s ease; }
-        @keyframes tabFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-
-        /* Empty state pulse */
-        @keyframes emptyPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.05)} }
-        .empty-icon { animation: emptyPulse 2.8s ease-in-out infinite; }
-
-        /* Form scrollbar */
-        .modal-form::-webkit-scrollbar { width: 4px; }
-        .modal-form::-webkit-scrollbar-track { background: transparent; }
-        .modal-form::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 4px; }
       `}</style>
 
       <div className="gv-root flex flex-col gap-5">
-
-        {/* ── PAGE HEADER ── */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
-              style={{
-                background: pendingValidations.length > 0
-                  ? 'linear-gradient(135deg,#f59e0b,#d97706)'
-                  : 'linear-gradient(135deg,#10b981,#059669)',
-                boxShadow: pendingValidations.length > 0
-                  ? '0 4px 14px rgba(245,158,11,0.38)'
-                  : '0 4px 14px rgba(16,185,129,0.38)',
-                transition: 'all 0.4s ease',
-              }}
-            >
-              <ScanFace size={22} className="text-white" />
+        {/* Header */}
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-4">
+              <div
+                className="flex h-13 w-13 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg"
+                style={{
+                  background:
+                    totalPending > 0
+                      ? "linear-gradient(135deg,#f59e0b,#d97706)"
+                      : "linear-gradient(135deg,#10b981,#059669)",
+                }}
+              >
+                <ShieldCheck size={24} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-extrabold tracking-tight text-slate-800">
+                  Validasi AI Attendance
+                </h2>
+                <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                  Pilih worship session, lalu validasi data wajah ambiguous atau
+                  unknown group.
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">Validasi AI & Wajah Baru</h2>
-              <p className="text-slate-500 text-sm mt-0.5">Konfirmasi tebakan AI atau tambahkan wajah ke data jemaat</p>
+
+            <div
+              className={`inline-flex w-fit items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-bold ${
+                totalPending > 0
+                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              {isLoadingSessions ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Memuat...
+                </>
+              ) : totalPending > 0 ? (
+                <>
+                  <AlertTriangle size={16} />
+                  {totalPending} Pending Validation
+                </>
+              ) : (
+                <>
+                  <CheckCircle size={16} />
+                  Semua Data Tervalidasi
+                </>
+              )}
             </div>
           </div>
+        </section>
 
-          {pendingValidations.length > 0 ? (
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 text-sm font-semibold flex-shrink-0">
-              <AlertTriangle size={15} />
-              {pendingValidations.length} Menunggu Validasi
+        {/* Loading state */}
+        {isLoadingSessions && (
+          <section className="flex min-h-[260px] items-center justify-center rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col items-center gap-3 text-slate-400">
+              <Loader2 size={36} className="animate-spin text-indigo-500" />
+              <p className="text-sm font-semibold">Memuat data validasi...</p>
             </div>
-          ) : (
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-semibold flex-shrink-0">
-              <ShieldCheck size={15} />
-              Semua Tervalidasi
-            </div>
-          )}
-        </div>
+          </section>
+        )}
 
-        {/* ── CONTENT: empty or card grid ── */}
-        {pendingValidations.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center py-24 gap-4">
-            <div
-              className="empty-icon w-20 h-20 rounded-2xl flex items-center justify-center"
-              style={{ background:'linear-gradient(135deg,#10b981,#059669)', boxShadow:'0 8px 24px rgba(16,185,129,0.3)' }}
+        {/* Error state */}
+        {!isLoadingSessions && sessionError && (
+          <section className="flex min-h-[200px] flex-col items-center justify-center rounded-3xl border border-rose-200 bg-rose-50 p-8 text-center shadow-sm">
+            <AlertTriangle size={32} className="mb-3 text-rose-500" />
+            <p className="font-extrabold text-rose-800">{sessionError}</p>
+            <button
+              onClick={fetchSessions}
+              className="mt-4 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-700"
             >
-              <CheckCircle size={36} className="text-white" />
+              Coba Lagi
+            </button>
+          </section>
+        )}
+
+        {/* Empty state */}
+        {!isLoadingSessions && !sessionError && validationSessions.length === 0 && (
+          <section className="gv-soft-grid flex min-h-[420px] flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600">
+              <CheckCircle size={38} />
             </div>
-            <div className="text-center">
-              <h3 className="text-lg font-bold text-slate-700">Semua Wajah Sudah Tervalidasi!</h3>
-              <p className="text-slate-400 text-sm mt-1">Tidak ada tangkapan yang membutuhkan konfirmasi.</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {pendingValidations.map((item, i) => {
-              const unknown = isUnknown(item);
-              const cc = confScheme(item.confidence);
-              return (
-                <div
-                  key={item.id}
-                  className="gv-card bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-lg hover:border-slate-300 transition-all flex flex-col"
-                  style={{ animationDelay: `${i * 0.08}s` }}
-                >
-                  {/* ── CCTV capture image ── */}
-                  <div className="gv-img relative h-48 bg-slate-100 overflow-hidden">
-                    <div className="gv-scan" />
-                    <div className="gv-corner tl" />
-                    <div className="gv-corner tr" />
-                    <div className="gv-corner bl" />
-                    <div className="gv-corner br" />
-                    <img src={item.image_url} alt="CCTV Capture" className="w-full h-full object-cover" />
+            <h3 className="text-xl font-extrabold text-slate-800">
+              Tidak Ada Data Validasi
+            </h3>
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+              Saat ini tidak ada worship session yang memiliki timeline record
+              pending.
+            </p>
+            <button
+              onClick={fetchSessions}
+              className="mt-5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700"
+            >
+              Refresh
+            </button>
+          </section>
+        )}
 
-                    {/* Timestamp badge */}
-                    <div
-                      className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 text-white text-xs font-medium px-2.5 py-1 rounded-lg"
-                      style={{ background:'rgba(0,0,0,0.58)', backdropFilter:'blur(6px)' }}
-                    >
-                      <Clock size={11} />
-                      {item.capture_time}
-                    </div>
+        {/* Session list */}
+        {!isLoadingSessions && !sessionError && validationSessions.length > 0 && (
+          <>
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {validationSessions.map((item, index) => (
+                <SessionCard
+                  key={item.session.id}
+                  item={item}
+                  index={index}
+                  isActive={activeSessionId === item.session.id}
+                  onOpen={() => openSession(item.session.id)}
+                />
+              ))}
+            </section>
 
-                    {/* Detection ID */}
-                    <div
-                      className="absolute top-3 right-3 z-10 text-white text-xs font-mono px-2 py-0.5 rounded-md"
-                      style={{ background:'rgba(0,0,0,0.45)', backdropFilter:'blur(4px)' }}
-                    >
-                      #{item.id}
-                    </div>
-
-                    {/* Unknown badge — shown when AI could not identify */}
-                    {unknown && (
-                      <div
-                        className="absolute top-3 left-3 z-10 flex items-center gap-1 text-white text-xs font-semibold px-2 py-0.5 rounded-md"
-                        style={{ background:'rgba(244,63,94,0.75)', backdropFilter:'blur(4px)' }}
-                      >
-                        <AlertTriangle size={10} />
-                        Tidak Dikenali
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ── AI prediction info ── */}
-                  <div className="px-4 pt-4 pb-3 bg-white border-b border-slate-100">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5">Tebakan AI</p>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-bold text-slate-800 truncate text-sm">{item.ai_guess}</p>
-                      <span className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded-md flex-shrink-0 ${cc.pill}`}>
-                        {item.confidence}%
+            {/* Active session detail */}
+            {activeSession && (
+              <section className="gv-enter rounded-3xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-slate-100 p-5 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-extrabold text-slate-800">
+                        {activeSession.session.session_name}
+                      </h3>
+                      <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
+                        Detail Validasi
                       </span>
                     </div>
-                    {/* Confidence bar */}
-                    <div className="mt-2.5 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="conf-fill h-full rounded-full"
-                        style={{ width: `${item.confidence}%`, background: cc.bar }}
-                      />
-                    </div>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Klik baris data untuk melihat wajah, lalu pilih action.
+                    </p>
                   </div>
-
-                  {/* ── Action buttons — layout adapts based on isUnknown ── */}
-                  <div className={`p-3 grid gap-2 ${unknown ? 'grid-cols-2' : 'grid-cols-3'}`}>
-
-                    {/* Verify — spans full width only when AI recognised someone (no "add" button) */}
-                    <button
-                      onClick={() => handleQuickAction(item.id, 'verify')}
-                      title="Tebakan AI benar, ini jemaat tersebut"
-                      className={`act-verify flex items-center justify-center gap-1.5 py-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl text-xs font-bold transition-all ${!unknown ? 'col-span-1' : ''}`}
-                    >
-                      <CheckCircle size={14} /> Verifikasi
-                    </button>
-
-                    {/* Add to member — only visible when AI could not identify the face */}
-                    {unknown && (
-                      <button
-                        onClick={() => handleOpenAddModal(item)}
-                        title="Tambahkan wajah ini ke data jemaat"
-                        className="act-add flex items-center justify-center gap-1.5 py-2.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-bold transition-all"
-                      >
-                        <PlusCircle size={14} /> Tambah
-                      </button>
-                    )}
-
-                    {/* Register as guest */}
-                    <button
-                      onClick={() => handleQuickAction(item.id, 'guest')}
-                      title="Daftarkan sebagai tamu baru"
-                      className="act-guest flex items-center justify-center gap-1.5 py-2.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl text-xs font-bold transition-all"
-                    >
-                      <UserCheck size={14} /> Tamu
-                    </button>
-
-                    {/* Reject — not a real face or bad capture */}
-                    <button
-                      onClick={() => handleQuickAction(item.id, 'reject')}
-                      title="Bukan wajah orang / tangkapan tidak valid"
-                      className={`act-reject flex items-center justify-center gap-1.5 py-2.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-xl text-xs font-bold transition-all ${!unknown ? 'col-span-1' : ''}`}
-                    >
-                      <XCircle size={14} /> Tolak
-                    </button>
-                  </div>
+                  <button
+                    onClick={closeSession}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-50"
+                  >
+                    Tutup
+                  </button>
                 </div>
-              );
-            })}
-          </div>
+
+                <div className="space-y-3 p-4">
+                  {activeRows.length === 0 ? (
+                    <div className="flex items-center justify-center py-10 text-slate-400">
+                      <CheckCircle size={20} className="mr-2 text-emerald-500" />
+                      <span className="text-sm font-semibold">
+                        Tidak ada data pending di sesi ini.
+                      </span>
+                    </div>
+                  ) : (
+                    activeRows.map((row) => (
+                      <ValidationRow
+                        key={row.rowKey}
+                        row={row}
+                        expanded={!!expandedRows[row.rowKey]}
+                        selectedFaces={selectedFaces[row.rowKey] || []}
+                        onToggle={() => toggleRow(row.rowKey)}
+                        onToggleFace={(record) => toggleFaceSelection(row, record)}
+                        isFaceSelected={(recordId) =>
+                          isFaceSelected(row.rowKey, recordId)
+                        }
+                        onVerify={() => openVerifyModal(row)}
+                        onGuest={() => openGuestModal(row)}
+                        onAddMember={() => openAddMemberModal(row)}
+                        onReject={() => openRejectModal(row)}
+                        onPreviewImage={(image) => setPreviewImage(image)}
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
+          </>
         )}
       </div>
 
-      {/* ============================================================
-           FACE-LINKING MODAL
-           Opens when admin clicks "Tambah" on an unrecognised face.
-           Two tabs: link to existing member, or create a new one.
-      ============================================================ */}
-      {isModalOpen && (
-        <div className="gv-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="gv-modal bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed right-5 top-5 z-[70] gv-enter">
+          <div
+            className={`flex items-center gap-3 rounded-2xl border px-4 py-3 shadow-xl ${
+              toast.type === "warning"
+                ? "border-amber-200 bg-amber-50 text-amber-700"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            {toast.type === "warning" ? (
+              <AlertTriangle size={18} />
+            ) : (
+              <CheckCircle size={18} />
+            )}
+            <p className="text-sm font-bold">{toast.message}</p>
+          </div>
+        </div>
+      )}
 
-            {/* Modal header */}
+      {/* Modals */}
+      {modal?.type === "verify" && (
+        <VerifyModal
+          modal={modal}
+          selectedRecords={getSelectedRecords(modal.row)}
+          verifyMode={verifyMode}
+          setVerifyMode={setVerifyMode}
+          verifyMemberSearch={verifyMemberSearch}
+          setVerifyMemberSearch={setVerifyMemberSearch}
+          selectedVerifyMemberId={selectedVerifyMemberId}
+          setSelectedVerifyMemberId={setSelectedVerifyMemberId}
+          filteredVerifyMembers={filteredVerifyMembers}
+          isSubmitting={isSubmittingAction}
+          onClose={() => {
+            if (!isSubmittingAction) setModal(null);
+          }}
+          onConfirm={handleConfirmVerify}
+          onPreviewImage={(image) => setPreviewImage(image)}
+        />
+      )}
+
+      {modal?.type === "guest" && (
+        <GuestModal
+          modal={modal}
+          selectedRecords={getSelectedRecords(modal.row)}
+          guestSearchName={guestSearchName}
+          setGuestSearchName={setGuestSearchName}
+          selectedGuestId={selectedGuestId}
+          setSelectedGuestId={setSelectedGuestId}
+          aiRecommendedGuest={aiRecommendedGuest}
+          filteredGuests={filteredGuests}
+          showGuestForm={showGuestForm}
+          setShowGuestForm={setShowGuestForm}
+          guestForm={guestForm}
+          setGuestForm={setGuestForm}
+          isFindingGuestByAi={isFindingGuestByAi}
+          isSubmitting={isSubmittingAction}
+          onFindByAi={handleFindGuestByAi}
+          onClose={() => {
+            if (!isSubmittingAction && !isFindingGuestByAi) setModal(null);
+          }}
+          onConfirm={handleConfirmGuest}
+          onPreviewImage={(image) => setPreviewImage(image)}
+          showToast={showToast}
+        />
+      )}
+
+      {modal?.type === "member" && (
+        <MemberModal
+          modal={modal}
+          selectedRecords={
+            modal.row.type === "ambiguous"
+              ? modal.row.records
+              : getSelectedRecords(modal.row)
+          }
+          memberMode={memberMode}
+          setMemberMode={setMemberMode}
+          memberSearch={memberSearch}
+          setMemberSearch={setMemberSearch}
+          selectedMemberId={selectedMemberId}
+          setSelectedMemberId={setSelectedMemberId}
+          filteredMembers={filteredMembers}
+          memberForm={memberForm}
+          setMemberForm={setMemberForm}
+          isSubmitting={isSubmittingAction}
+          onClose={() => {
+            if (!isSubmittingAction) setModal(null);
+          }}
+          onConfirm={handleConfirmMember}
+          onPreviewImage={(image) => setPreviewImage(image)}
+        />
+      )}
+
+      {modal?.type === "member-single-face-confirm" && (
+        <div className="gv-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="gv-modal w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
             <div
-              className="px-6 py-4 flex items-center justify-between flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)' }}
+              className="px-5 py-4 text-white"
+              style={{
+                background: "linear-gradient(135deg,#2563eb,#4f46e5)",
+              }}
             >
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
-                  <ScanFace size={17} className="text-white" />
-                </div>
-                <div>
-                  <h3 className="text-white font-bold text-base">Tambah Wajah ke Data Jemaat</h3>
-                  <p className="text-indigo-200 text-xs mt-0.5">Pilih jemaat lama atau buat data baru</p>
-                </div>
-              </div>
-              <button
-                onClick={handleCloseModal}
-                className="p-1.5 text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all"
-              >
-                <X size={18} />
-              </button>
+              <h3 className="text-base font-extrabold">Hanya 1 Gambar Dipilih</h3>
+              <p className="mt-1 text-xs leading-relaxed text-blue-100">
+                Untuk meningkatkan akurasi pengenalan berikutnya, sebaiknya pilih lebih
+                dari satu gambar jika tersedia.
+              </p>
             </div>
 
-            {/* Modal body: face preview (left) + form (right) */}
-            <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-
-              {/* Left: captured face preview */}
-              <div
-                className="md:w-72 flex-shrink-0 flex flex-col items-center justify-center gap-4 p-6 border-r border-slate-100"
-                style={{ background: 'linear-gradient(180deg,#f8f7ff 0%,#f1f0fe 100%)' }}
-              >
-                {/* Face image in a circular frame */}
-                <div className="w-36 h-36 rounded-2xl overflow-hidden border-4 border-white shadow-xl">
-                  <img src={selectedFace?.image_url} alt="Selected Face" className="w-full h-full object-cover" />
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-bold text-slate-700">Wajah Tangkapan CCTV</p>
-                  <p className="text-xs text-slate-400 mt-1.5 leading-relaxed px-2">
-                    Sistem AI akan mengekstrak Face Embedding dari gambar ini untuk pengenalan berikutnya.
-                  </p>
-                </div>
-
-                {/* Confidence info box */}
-                <div className="w-full rounded-xl border border-slate-200 bg-white p-3">
-                  <p className="text-xs text-slate-400 mb-1">Confidence AI</p>
-                  <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${selectedFace?.confidence}%`,
-                        background: confScheme(selectedFace?.confidence).bar,
-                      }}
-                    />
-                  </div>
-                  <p className="text-xs font-mono font-bold text-slate-600 mt-1.5 text-right">
-                    {selectedFace?.confidence}%
-                  </p>
-                </div>
+            <div className="space-y-4 p-5">
+              <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                <p className="text-sm font-extrabold text-amber-800">
+                  Tetap lanjut dengan 1 gambar?
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-amber-700">
+                  Jika memilih “Tambah Gambar”, popup ini akan ditutup dan kamu bisa
+                  memilih gambar tambahan dari group ini.
+                </p>
               </div>
 
-              {/* Right: tab content */}
-              <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setModal(null)}
+                  className="rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100"
+                >
+                  Tambah Gambar
+                </button>
 
-                {/* Tab switcher */}
-                <div className="px-6 pt-5 pb-0 flex-shrink-0">
-                  <div className="flex bg-slate-100 p-1 rounded-xl">
-                    <button
-                      onClick={() => setActiveTab('existing')}
-                      className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
-                        activeTab === 'existing'
-                          ? 'bg-white shadow-sm text-indigo-600'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      Pilih Jemaat Lama
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('new')}
-                      className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
-                        activeTab === 'new'
-                          ? 'bg-white shadow-sm text-indigo-600'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      Buat Jemaat Baru
-                    </button>
-                  </div>
-                </div>
-
-                {/* Scrollable form area */}
-                <div className="modal-form flex-1 overflow-y-auto px-6 py-5">
-
-                  {/* ── TAB 1: Link to existing member ── */}
-                  {activeTab === 'existing' && (
-                    <div className="tab-panel space-y-4">
-                      <p className="text-sm text-slate-500">
-                        Pilih jemaat yang sudah terdaftar namun belum memiliki data wajah di sistem.
-                      </p>
-                      <div>
-                        <label className={labelCls}>Cari Nama Jemaat</label>
-                        <div className="relative">
-                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <select
-                            data-member-select
-                            className={`${inputCls} pl-9`}
-                            defaultValue=""
-                          >
-                            <option value="" disabled>— Pilih nama jemaat —</option>
-                            {allMembers.map(member => (
-                              <option key={member.id} value={member.id}>{member.full_name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Info callout */}
-                      <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-100 rounded-xl p-3.5">
-                        <Users size={16} className="text-indigo-500 flex-shrink-0 mt-0.5" />
-                        <p className="text-xs text-indigo-600 leading-relaxed">
-                          Wajah dari tangkapan CCTV akan diikat ke jemaat yang dipilih. Sistem akan menggunakan data ini untuk pengenalan otomatis di sesi berikutnya.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── TAB 2: Create new member ── */}
-                  {activeTab === 'new' && (
-                    <div className="tab-panel grid grid-cols-2 gap-4">
-
-                      {/* Full name */}
-                      <div className="col-span-2">
-                        <label className={labelCls}>Nama Lengkap (Sesuai KTP)</label>
-                        <input
-                          name="full_name"
-                          value={formData.full_name}
-                          onChange={handleInputChange}
-                          type="text"
-                          className={inputCls}
-                          placeholder="Bagus Eka Bagaskara"
-                        />
-                      </div>
-
-                      {/* Nickname */}
-                      <div>
-                        <label className={labelCls}>Panggilan</label>
-                        <input
-                          name="nickname"
-                          value={formData.nickname}
-                          onChange={handleInputChange}
-                          type="text"
-                          className={inputCls}
-                          placeholder="Bagas"
-                        />
-                      </div>
-
-                      {/* Gender */}
-                      <div>
-                        <label className={labelCls}>Jenis Kelamin</label>
-                        <select
-                          name="gender"
-                          value={formData.gender}
-                          onChange={handleInputChange}
-                          className={inputCls}
-                        >
-                          <option value="L">Laki-laki (L)</option>
-                          <option value="P">Perempuan (P)</option>
-                        </select>
-                      </div>
-
-                      {/* Birth date */}
-                      <div>
-                        <label className={labelCls}>Tanggal Lahir</label>
-                        <input
-                          name="birth_date"
-                          value={formData.birth_date}
-                          onChange={handleInputChange}
-                          type="date"
-                          className={inputCls}
-                        />
-                      </div>
-
-                      {/* Phone */}
-                      <div>
-                        <label className={labelCls}>Nomor WhatsApp</label>
-                        <input
-                          name="phone"
-                          value={formData.phone}
-                          onChange={handleInputChange}
-                          type="tel"
-                          className={inputCls}
-                          placeholder="0812xxxx..."
-                        />
-                      </div>
-
-                      {/* Email */}
-                      <div className="col-span-2">
-                        <label className={labelCls}>Alamat Email</label>
-                        <input
-                          name="email"
-                          value={formData.email}
-                          onChange={handleInputChange}
-                          type="email"
-                          className={inputCls}
-                          placeholder="bagas@example.com"
-                        />
-                      </div>
-
-                      {/* Address */}
-                      <div className="col-span-2">
-                        <label className={labelCls}>Alamat Domisili</label>
-                        <textarea
-                          name="address"
-                          value={formData.address}
-                          onChange={handleInputChange}
-                          rows="2"
-                          className={`${inputCls} resize-none`}
-                          placeholder="Tulis alamat lengkap..."
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Modal footer */}
-                <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/60 flex-shrink-0">
-                  <button
-                    onClick={handleCloseModal}
-                    className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    onClick={handleSaveFace}
-                    className="flex items-center gap-2 text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-md transition-all"
-                    style={{ background:'linear-gradient(135deg,#6366f1,#4f46e5)' }}
-                    onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(99,102,241,0.45)'}
-                    onMouseLeave={e => e.currentTarget.style.boxShadow = ''}
-                  >
-                    <Save size={15} />
-                    Simpan Data & Wajah
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => openRealAddMemberModal(modal.row)}
+                  className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-extrabold text-white shadow-md transition-all hover:bg-indigo-700"
+                >
+                  Ya, Tetap Lanjut
+                </button>
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {modal?.type === "reject" && (
+        <RejectModal
+          modal={modal}
+          selectedRecords={modal.row.records}
+          isSubmitting={isSubmittingAction}
+          onClose={() => {
+            if (!isSubmittingAction) setModal(null);
+          }}
+          onConfirm={handleConfirmReject}
+          onPreviewImage={(image) => setPreviewImage(image)}
+        />
+      )}
+
+      {previewImage && (
+        <FacePreviewModal
+          image={previewImage.src}
+          title={previewImage.title}
+          subtitle={previewImage.subtitle}
+          onClose={() => setPreviewImage(null)}
+        />
       )}
     </>
   );

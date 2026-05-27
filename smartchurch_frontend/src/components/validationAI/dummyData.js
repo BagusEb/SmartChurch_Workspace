@@ -1,0 +1,192 @@
+const makeAvatar = (name, bg = "e2e8f0", color = "475569") =>
+  `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    name
+  )}&background=${bg}&color=${color}&size=400&bold=true`;
+
+export const DUMMY_MEMBERS = [
+  {
+    id: 1,
+    full_name: "Bagus Eka Bagaskara",
+    nickname: "Bagas",
+    gender: "L",
+    phone: "08123456789",
+  },
+  {
+    id: 2,
+    full_name: "Maria Sitompul",
+    nickname: "Maria",
+    gender: "P",
+    phone: "08129876543",
+  },
+  {
+    id: 3,
+    full_name: "Samuel Hutagalung",
+    nickname: "Samuel",
+    gender: "L",
+    phone: "081300011122",
+  },
+  {
+    id: 4,
+    full_name: "Debora Manurung",
+    nickname: "Debora",
+    gender: "P",
+    phone: "081344455566",
+  },
+];
+
+export const DUMMY_VALIDATION_RESPONSE = {
+  success: true,
+  count: 2,
+  sessions: [
+    {
+      session: {
+        id: 6,
+        session_name: "Ibadah Raya Sabat",
+        date: "2026-05-26",
+        start_time: "2026-05-26T09:34:14.062570+00:00",
+        end_time: "2026-05-26T09:34:44.888733+00:00",
+        status: "closed",
+      },
+      summary: {
+        total_pending: 4,
+        total_unknown_records: 3,
+        total_unknown_people_groups: 1,
+        total_ambiguous_records: 1,
+      },
+      unknown_people_groups: [
+        {
+          group_id: "people_1",
+          label: "People 1",
+          count: 3,
+          record_ids: [61, 62, 63],
+          first_capture_time: "2026-05-26T09:34:18.112000+00:00",
+          last_capture_time: "2026-05-26T09:34:36.992000+00:00",
+          representative_image: makeAvatar("Unknown Person", "e0f2fe", "0369a1"),
+          average_confidence: 39.41,
+          ai_recommendation: {
+            member_id: 1,
+            full_name: "Bagus Eka Bagaskara",
+            similarity: 82.34,
+            note: "Rekomendasi AI paling mendekati untuk unknown group ini",
+          },
+          records: [
+            {
+              id: 61,
+              capture_time: "2026-05-26T09:34:18.112000+00:00",
+              detection_status: "unknown",
+              validation_status: "pending",
+              confidence: 38.11,
+              matched_member_id: null,
+              final_member_id: null,
+              final_guest_id: null,
+              face_image: makeAvatar("Face 1", "dbeafe", "1d4ed8"),
+              notes: null,
+            },
+            {
+              id: 62,
+              capture_time: "2026-05-26T09:34:26.230000+00:00",
+              detection_status: "unknown",
+              validation_status: "pending",
+              confidence: 41.22,
+              matched_member_id: null,
+              final_member_id: null,
+              final_guest_id: null,
+              face_image: makeAvatar("Face 2", "e0f2fe", "0369a1"),
+              notes: null,
+            },
+            {
+              id: 63,
+              capture_time: "2026-05-26T09:34:36.992000+00:00",
+              detection_status: "unknown",
+              validation_status: "pending",
+              confidence: 38.9,
+              matched_member_id: null,
+              final_member_id: null,
+              final_guest_id: null,
+              face_image: makeAvatar("Face 3", "ccfbf1", "0f766e"),
+              notes: null,
+            },
+          ],
+        },
+      ],
+      ambiguous_records: [
+        {
+          id: 50,
+          capture_time: "2026-05-26T09:34:30.985237+00:00",
+          detection_status: "ambiguous",
+          validation_status: "pending",
+          confidence: 25.12,
+          matched_member_id: 1,
+          matched_member_name: "Bagus Eka Bagaskara",
+          final_member_id: null,
+          final_guest_id: null,
+          face_image: makeAvatar("Ambiguous", "fef3c7", "92400e"),
+          notes: null,
+        },
+      ],
+    },
+    {
+      session: {
+        id: 7,
+        session_name: "Ibadah Pemuda",
+        date: "2026-05-25",
+        start_time: "2026-05-25T17:00:00.000000+00:00",
+        end_time: "2026-05-25T18:30:00.000000+00:00",
+        status: "closed",
+      },
+      summary: {
+        total_pending: 2,
+        total_unknown_records: 1,
+        total_unknown_people_groups: 1,
+        total_ambiguous_records: 1,
+      },
+      unknown_people_groups: [
+        {
+          group_id: "people_1",
+          label: "People 1",
+          count: 1,
+          record_ids: [81],
+          first_capture_time: "2026-05-25T17:20:00.000000+00:00",
+          last_capture_time: "2026-05-25T17:20:00.000000+00:00",
+          representative_image: makeAvatar("Visitor", "ede9fe", "6d28d9"),
+          average_confidence: 45.72,
+          ai_recommendation: {
+            member_id: 2,
+            full_name: "Maria Sitompul",
+            similarity: 67.92,
+            note: "Rekomendasi AI paling mendekati untuk unknown group ini",
+          },
+          records: [
+            {
+              id: 81,
+              capture_time: "2026-05-25T17:20:00.000000+00:00",
+              detection_status: "unknown",
+              validation_status: "pending",
+              confidence: 45.72,
+              matched_member_id: null,
+              final_member_id: null,
+              final_guest_id: null,
+              face_image: makeAvatar("Visitor", "ede9fe", "6d28d9"),
+              notes: null,
+            },
+          ],
+        },
+      ],
+      ambiguous_records: [
+        {
+          id: 82,
+          capture_time: "2026-05-25T17:45:00.000000+00:00",
+          detection_status: "ambiguous",
+          validation_status: "pending",
+          confidence: 58.23,
+          matched_member_id: 2,
+          matched_member_name: "Maria Sitompul",
+          final_member_id: null,
+          final_guest_id: null,
+          face_image: makeAvatar("Maria?", "fee2e2", "b91c1c"),
+          notes: null,
+        },
+      ],
+    },
+  ],
+};

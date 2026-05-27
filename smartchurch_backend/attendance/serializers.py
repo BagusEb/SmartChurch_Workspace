@@ -1,3 +1,5 @@
+# serializers.py in attendance app
+
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer

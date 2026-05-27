@@ -13,6 +13,7 @@ import Attendance from './pages/Attendance';
 import GuestValidation from './pages/GuestValidation';
 import AttendanceReport from './pages/AttendanceReport';
 import AdminAIChat from './pages/AdminAIChat';
+import SmartCamera       from './pages/SmartCamera'; 
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -47,6 +48,8 @@ function App() {
             return <Navigate to="/" replace />;
           })()}
         />
+
+        <Route path="/camera" element={<SmartCamera />} />
 
         <Route
           path="/"

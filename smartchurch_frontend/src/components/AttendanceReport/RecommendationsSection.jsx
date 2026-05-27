@@ -1,4 +1,4 @@
-import { UserCheck, UserPlus, Loader2, Eye } from 'lucide-react';
+import { UserCheck, UserPlus, Loader2, Eye, RefreshCw } from 'lucide-react';
 
 const STATUS_COLORS = {
   new: 'bg-amber-100 text-amber-700',
@@ -116,6 +116,9 @@ export default function RecommendationsSection({
   followUps,
   guestConversions,
   isLoading,
+  isSyncingFollowUps = false,
+  followUpSyncMessage = '',
+  onSyncFollowUps,
   onSelectFollowUp,
   onSelectGuest,
 }) {
@@ -127,16 +130,43 @@ export default function RecommendationsSection({
           <div className="flex justify-center items-center bg-linear-to-br from-amber-400 to-orange-500 rounded-xl w-8 h-8 shrink-0">
             <UserCheck size={15} className="text-white" />
           </div>
-          <div>
+
+          <div className="min-w-0">
             <p className="font-bold text-slate-700 text-sm">Rekomendasi Follow-up Anggota</p>
             <p className="text-slate-400 text-xs">Anggota yang membutuhkan tindak lanjut</p>
           </div>
-          {!isLoading && (
-            <span className="ml-auto bg-amber-100 px-2 py-0.5 rounded-full font-semibold text-amber-700 text-xs">
-              {followUps.length}
-            </span>
-          )}
+
+          <div className="flex items-center gap-2 ml-auto shrink-0">
+            <button
+              type="button"
+              onClick={onSyncFollowUps}
+              disabled={isLoading || isSyncingFollowUps}
+              title="Generate ulang rekomendasi follow-up"
+              className={`flex items-center justify-center rounded-xl w-8 h-8 transition-colors ${
+                isLoading || isSyncingFollowUps
+                  ? 'cursor-not-allowed bg-slate-100 text-slate-400'
+                  : 'bg-amber-50 hover:bg-amber-100 text-amber-700'
+              }`}
+            >
+              {isSyncingFollowUps ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <RefreshCw size={15} />
+              )}
+            </button>
+
+            {!isLoading && (
+              <span className="bg-amber-100 px-2 py-0.5 rounded-full font-semibold text-amber-700 text-xs">
+                {followUps.length}
+              </span>
+            )}
+          </div>
         </div>
+        {followUpSyncMessage && (
+          <div className="mx-5 mt-3 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs font-medium text-amber-700">
+            {followUpSyncMessage}
+          </div>
+        )}
         <div className="px-5 py-2 max-h-72 overflow-y-auto">
           <FollowUpList items={followUps} isLoading={isLoading} onSelect={onSelectFollowUp} />
         </div>

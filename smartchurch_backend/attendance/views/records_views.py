@@ -2,6 +2,8 @@ import json
 from collections import defaultdict
 from datetime import date, datetime
 
+from dateutil.relativedelta import relativedelta
+from django.db import transaction
 from django.db.models import Avg, Count, Q
 from django.utils import timezone
 from langchain_core.messages import HumanMessage
@@ -43,6 +45,215 @@ def get_year_range(year_param):
     end = date(year + 1, 1, 1)
     return start, end
 
+def generate_need_followup_members_report(date_value=None):
+    """
+    Generate data FollowupMember berdasarkan 2 kriteria:
+
+    1. Member active tidak hadir pada 3 pertemuan terakhir.
+    2. Attendance rate turun minimal 20% pada 3 bulan terakhir
+       dibanding periode sebelumnya dalam 12 bulan terakhir.
+
+    Function ini aman dipanggil berkali-kali karena akan skip:
+    - member yang masih punya follow-up status new
+    - member yang follow-up resolved/closed dalam 3 bulan terakhir
+    """
+
+    if not date_value:
+        target_date = timezone.localdate()
+    else:
+        try:
+            target_date = datetime.strptime(date_value, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError("Invalid date format. Please use YYYY-MM-DD.")
+
+    reasons = {}
+
+    # ============================================================
+    # Criterion 1: Active member absent from last 3 meetings
+    # ============================================================
+    last_3_meetings = list(
+        Attendance.objects.filter(
+            attendance_date__lte=target_date,
+            member_id__isnull=False,
+        )
+        .order_by("-attendance_date")
+        .values_list("attendance_date", flat=True)
+        .distinct()[:3]
+    )
+
+    if len(last_3_meetings) >= 3:
+        oldest_meeting_date = last_3_meetings[-1]
+
+        absent_ids = (
+            Member.objects
+            .filter(
+                member_status="active",
+                created_at__date__lte=oldest_meeting_date,
+            )
+            .exclude(
+                attendance__attendance_date__in=last_3_meetings,
+            )
+            .values_list("id", flat=True)
+            .distinct()
+        )
+
+        for member_id in absent_ids:
+            reasons.setdefault(member_id, []).append(
+                "Anggota aktif tidak hadir dalam 3 pertemuan terakhir."
+            )
+
+    # ============================================================
+    # Criterion 2: Attendance rate dropped >= 20% in last 3 months
+    # ============================================================
+    a_year_ago = target_date - relativedelta(months=12)
+    three_months_ago = target_date - relativedelta(months=3)
+
+    period1_qs = (
+        Attendance.objects
+        .filter(
+            member__created_at__date__lte=a_year_ago,
+            attendance_date__gte=a_year_ago,
+            attendance_date__lte=three_months_ago,
+            member_id__isnull=False,
+        )
+        .values("member_id", "attendance_date")
+        .distinct()
+    )
+
+    sessions_1 = (
+        Attendance.objects
+        .filter(
+            attendance_date__gte=a_year_ago,
+            attendance_date__lte=three_months_ago,
+            member_id__isnull=False,
+        )
+        .values("attendance_date")
+        .distinct()
+        .count()
+    )
+
+    if sessions_1 > 0:
+        attendance_count_1 = {}
+
+        for row in period1_qs:
+            member_id = row["member_id"]
+            attendance_count_1[member_id] = attendance_count_1.get(member_id, 0) + 1
+
+        attendance_percent_1 = {
+            member_id: count / sessions_1
+            for member_id, count in attendance_count_1.items()
+        }
+
+        period2_qs = (
+            Attendance.objects
+            .filter(
+                member__created_at__date__lte=a_year_ago,
+                attendance_date__gt=three_months_ago,
+                attendance_date__lte=target_date,
+                member_id__isnull=False,
+            )
+            .values("member_id", "attendance_date")
+            .distinct()
+        )
+
+        sessions_2 = (
+            Attendance.objects
+            .filter(
+                attendance_date__gt=three_months_ago,
+                attendance_date__lte=target_date,
+                member_id__isnull=False,
+            )
+            .values("attendance_date")
+            .distinct()
+            .count()
+        )
+
+        if sessions_2 > 0:
+            attendance_count_2 = {}
+
+            for row in period2_qs:
+                member_id = row["member_id"]
+                attendance_count_2[member_id] = attendance_count_2.get(member_id, 0) + 1
+
+            attendance_percent_2 = {
+                member_id: count / sessions_2
+                for member_id, count in attendance_count_2.items()
+            }
+
+            for member_id, percent_1 in attendance_percent_1.items():
+                percent_2 = attendance_percent_2.get(member_id, 0)
+
+                if percent_1 > 0 and percent_2 < percent_1 * 0.8:
+                    drop = percent_1 - percent_2
+                    reasons.setdefault(member_id, []).append(
+                        f"Tingkat kehadiran menurun sebesar {drop:.0%} dalam 3 bulan terakhir."
+                    )
+
+    if not reasons:
+        return {
+            "target_date": target_date.isoformat(),
+            "candidate_count": 0,
+            "created_count": 0,
+            "skipped_count": 0,
+            "created_member_ids": [],
+            "skipped_member_ids": [],
+            "message": "Tidak ada anggota baru yang perlu follow-up.",
+        }
+
+    # ============================================================
+    # Skip members with open follow-up or recently resolved/closed
+    # ============================================================
+    skip_member_ids = set(
+        FollowupMember.objects.filter(
+            member_id__in=list(reasons.keys()),
+        )
+        .filter(
+            Q(status_followup="new")
+            | Q(
+                status_followup__in=["resolved", "closed"],
+                followup_date__gte=three_months_ago,
+            )
+        )
+        .values_list("member_id", flat=True)
+    )
+
+    to_create = []
+
+    for member_id, member_reasons in reasons.items():
+        if member_id in skip_member_ids:
+            continue
+
+        to_create.append(
+            FollowupMember(
+                member_id=member_id,
+                followup_date=target_date,
+                explain_followup="; ".join(member_reasons),
+                status_followup="new",
+                progress_followup="not_yet",
+            )
+        )
+
+    created_followups = []
+
+    if to_create:
+        created_followups = FollowupMember.objects.bulk_create(to_create)
+
+    created_member_ids = [item.member_id for item in created_followups]
+    skipped_member_ids = list(skip_member_ids)
+
+    return {
+        "target_date": target_date.isoformat(),
+        "candidate_count": len(reasons),
+        "created_count": len(created_followups),
+        "skipped_count": len(skipped_member_ids),
+        "created_member_ids": created_member_ids,
+        "skipped_member_ids": skipped_member_ids,
+        "message": (
+            f"Berhasil membuat {len(created_followups)} rekomendasi follow-up baru."
+            if created_followups
+            else "Tidak ada follow-up baru yang dibuat karena semua kandidat sudah memiliki follow-up aktif atau baru selesai ditindaklanjuti."
+        ),
+    }
 
 class TimelineDataRecordViewSet(viewsets.ModelViewSet):
     queryset = (
@@ -417,6 +628,49 @@ Ringkas dalam beberapa kalimat:
                 "message": "Report generated successfully",
                 "report_id": summary_report.id,
                 "report_summary": report,
+            }
+        )
+    
+    @action(detail=False, methods=["post"], url_path="generate-followup-recommendations")
+    def generate_followup_recommendations(self, request):
+        """
+        POST /api/reports/generate-followup-recommendations/
+
+        Payload optional:
+        {
+            "date": "2026-05-24"
+        }
+
+        Jika date tidak dikirim, backend pakai tanggal hari ini.
+        """
+
+        date_value = request.data.get("date") or timezone.localdate().isoformat()
+
+        try:
+            with transaction.atomic():
+                result = generate_need_followup_members_report(date_value)
+        except ValueError as e:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(e),
+                },
+                status=400,
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "success": False,
+                    "error": "Gagal generate rekomendasi follow-up.",
+                    "detail": str(e),
+                },
+                status=500,
+            )
+
+        return Response(
+            {
+                "success": True,
+                **result,
             }
         )
 

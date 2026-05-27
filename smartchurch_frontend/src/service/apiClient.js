@@ -90,7 +90,8 @@ apiClient.interceptors.response.use(
 // --- Auth ---
 export const loginUser = async (credentials) => await apiClient.post('/token/', credentials);
 
-export const getVideoFeedUrl = () => `${apiClient.defaults.baseURL}video_feed/`;
+// --- Video Feed ---
+export const getVideoFeedUrl = () => `${apiClient.defaults.baseURL}cv/video/`;
 
 
 export const downloadFile = async (url, filename = 'download') => {
@@ -119,6 +120,7 @@ export const downloadFile = async (url, filename = 'download') => {
     document.body.removeChild(link);
 
     URL.revokeObjectURL(objectUrl);
+  // eslint-disable-next-line no-unused-vars
   } catch (error) {
     const link = document.createElement('a');
     link.href = url;
@@ -174,6 +176,17 @@ export const generateYearlyReport = async (start_date, end_date) => {
 };
 
 // Recommendations & Sessions
+export const generateFollowUpRecommendations = async (date = null) => {
+  const payload = date ? { date } : {};
+
+  const response = await apiClient.post(
+    '/reports/generate-followup-recommendations/',
+    payload
+  );
+
+  return response.data;
+};
+
 export const getFollowUpRecommendations = async () => {
   const response = await apiClient.get('/reports/follow-up-recommendations/');
   return response.data;
@@ -226,6 +239,93 @@ export const streamChatResponse = async ({ threadId, message }) => {
   });
 };
 
+// --- CV Attendance Session API ---
+export const startSession = async (sessionName) => {
+  const res = await apiClient.post('/cv/start/', { session_name: sessionName });
+  return res.data;
+};
 
+export const stopSession = async () => {
+  const res = await apiClient.post('/cv/stop/');
+  return res.data;
+};
+
+export const getDetectionLogs = async () => {
+  const res = await apiClient.get('/cv/logs/');
+  return res.data;
+};
+
+export const getSessionStatus = async () => {
+  const res = await apiClient.get('/cv/status/');
+  return res.data;
+};
+
+export const getSessionAttendanceResult = async (sessionId) => {
+  const res = await apiClient.get(`/cv/session-result/${sessionId}/`);
+  return res.data;
+};
+// --- Validation AI API ---
+export const getValidationAiSessions = async () => {
+  const response = await apiClient.get('/cv/validation-ai/sessions/');
+  return response.data;
+};
+
+export const getValidationAiSessionDetail = async (sessionId) => {
+  const response = await apiClient.get(`/cv/validation-ai/sessions/${sessionId}/`);
+  return response.data;
+};
+
+export const getValidationAiMemberGuestData = async (q = '') => {
+  const params = q ? { q } : {};
+  const response = await apiClient.get('/cv/validation-ai/data-member-guest/', {
+    params,
+  });
+  return response.data;
+};
+
+export const verifyValidationAiRecord = async (payload) => {
+  const response = await apiClient.post(
+    "/cv/validation-ai/actions/verify/",
+    payload
+  );
+
+  return response.data;
+};
+
+export const rejectValidationAiRecord = async (payload) => {
+  const response = await apiClient.post(
+    "/cv/validation-ai/actions/reject/",
+    payload
+  );
+
+  return response.data;
+};
+
+export const findValidationAiGuestByAi = async (payload) => {
+  const response = await apiClient.post(
+    "/cv/validation-ai/actions/guest/find-by-ai/",
+    payload
+  );
+
+  return response.data;
+};
+
+export const confirmValidationAiGuest = async (payload) => {
+  const response = await apiClient.post(
+    "/cv/validation-ai/actions/guest/confirm/",
+    payload
+  );
+
+  return response.data;
+};
+
+export const addValidationAiMemberFace = async (payload) => {
+  const response = await apiClient.post(
+    "/cv/validation-ai/actions/member/add-face/",
+    payload
+  );
+
+  return response.data;
+};
 
 export default apiClient;

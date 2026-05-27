@@ -1,3 +1,5 @@
+# models.py in attendance app
+
 from django.db import models
 from django.contrib.auth.models import User
 from django.contrib.auth.models import User
@@ -76,7 +78,7 @@ class WorshipSession(models.Model):
     status = models.CharField(max_length=50, default='active')
 
     class Meta:
-        db_table = 't_attendance_session'
+        db_table = 'tm_worship_session'
 
     def __str__(self):
         return self.session_name
@@ -137,6 +139,7 @@ class Guest(models.Model):
     face_image = models.BinaryField(blank=True, null=True)
     face_encoding = models.JSONField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
+    from_where = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -224,9 +227,9 @@ class Attendance(models.Model):
     guest = models.ForeignKey(Guest, on_delete=models.SET_NULL, null=True, blank=True)
     facedetection = models.OneToOneField(
         TimelineDataRecord,  # Relasi sudah dirubah ke model yang baru
-        on_delete=models.CASCADE,
+        on_delete=models.CASCADE, null=True, 
     )
-    
+
     session = models.ForeignKey(
         WorshipSession, 
         on_delete=models.CASCADE, 
@@ -235,9 +238,9 @@ class Attendance(models.Model):
         blank=True
     )
 
-    attendance_date = models.DateField()
-    check_in_time = models.DateTimeField()
-    confidence = models.DecimalField(max_digits=5, decimal_places=2)
+    attendance_date = models.DateField(null=True, blank=True)
+    check_in_time = models.DateTimeField(null=True, blank=True)
+    confidence = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -265,8 +268,8 @@ class AIConversation(models.Model):
 
 
 class SummaryReport(models.Model):
-    report_start_date = models.DateField()
-    report_end_date = models.DateField()
+    report_start_date = models.DateField(null=True, blank=True)
+    report_end_date = models.DateField(null=True, blank=True)
     total_members = models.IntegerField(default=0)
     total_guests = models.IntegerField(default=0)
     total_attendance = models.IntegerField(default=0)

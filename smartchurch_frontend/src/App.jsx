@@ -14,6 +14,7 @@ import GuestValidation from './pages/GuestValidation';
 import AttendanceReport from './pages/AttendanceReport';
 import AdminAIChat from './pages/AdminAIChat';
 import SmartCamera       from './pages/SmartCamera'; 
+import ManageAttendance from './pages/ManageAttendance';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -107,6 +108,10 @@ function App() {
           <Route
             path="validation"
             element={userRole === 'admin' ? <GuestValidation /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="manage-attendance"
+            element={userRole === 'admin' ? <ManageAttendance /> : <Navigate to="/" replace />}
           />
         </Route>
       </Routes>

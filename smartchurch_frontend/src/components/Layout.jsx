@@ -20,12 +20,14 @@ import {
   UserSearch,
   FileText,
   BotMessageSquare,
+  ClipboardList,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { to: '/',            label: 'Dashboard',        icon: LayoutDashboard },
   { to: '/members',     label: 'Data Jemaat',      icon: Users           },
   { to: '/attendance',  label: 'Kehadiran (CCTV)', icon: UserCheck       },
+  { to: '/manage-attendance', label: 'Kelola Absensi', icon: ClipboardList },
   { to: '/validation',  label: 'Validasi AI',      icon: UserSearch      },
   { to: '/report',      label: 'Laporan',          icon: FileText        },
   { to: '/manage-users',label: 'Kelola Pengguna',  icon: UserCog         },
@@ -36,6 +38,7 @@ const PAGE_TITLES = {
   '/':             'Dashboard Analitik',
   '/members':      'Data Jemaat',
   '/attendance':   'Kehadiran (CCTV)',
+  '/manage-attendance': 'Kelola Absensi',
   '/manage-users': 'Manajemen Pengguna',
   '/validation':   'Validasi AI',
   '/report':       'Laporan Kehadiran',
@@ -57,7 +60,7 @@ export default function Layout({ role }) {
     if (item.to === '/') return true; // Semua role bisa lihat Dashboard
     
     if (role === 'admin') {
-        return item.to === '/members' || item.to === '/attendance' || item.to === '/validation' || item.to === '/manage-users' || item.to === '/report' || item.to === '/chat';    }
+        return item.to === '/members' || item.to === '/attendance' || item.to === '/manage-attendance' || item.to === '/validation' || item.to === '/manage-users' || item.to === '/report' || item.to === '/chat';    }
 
     if (role === 'leader') {
         return item.to === '/report' ;    }
@@ -214,17 +217,6 @@ export default function Layout({ role }) {
             </div>
 
             <div className="flex items-center gap-2">
-              <button className="relative flex justify-center items-center bg-slate-100 hover:bg-slate-200 rounded-xl w-9 h-9 text-slate-500 transition-all">
-                <Bell size={16} />
-                <span className="top-1.5 right-1.5 absolute bg-red-500 border-2 border-white rounded-full w-2 h-2 notif-pulse" />
-              </button>
-
-              <button className="flex justify-center items-center bg-slate-100 hover:bg-slate-200 rounded-xl w-9 h-9 text-slate-500 transition-all">
-                <Settings size={16} />
-              </button>
-
-              <div className="bg-slate-200 mx-1 w-px h-6" />
-
               <div className="flex items-center gap-2.5">
                 <div className="flex justify-center items-center bg-linear-to-br from-indigo-500 to-violet-600 shadow-sm rounded-xl w-8 h-8 font-bold text-white text-xs">
                   {profileData.initial}

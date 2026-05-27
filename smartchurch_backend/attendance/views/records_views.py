@@ -270,11 +270,7 @@ class TimelineDataRecordViewSet(viewsets.ModelViewSet):
 
 
 class AttendanceViewSet(viewsets.ModelViewSet):
-    queryset = (
-        Attendance.objects.select_related("member", "guest", "facedetection")
-        .all()
-        .order_by("-attendance_date", "-check_in_time")
-    )
+    queryset = Attendance.objects.all().order_by('-check_in_time')
     serializer_class = AttendanceSerializer
 
 

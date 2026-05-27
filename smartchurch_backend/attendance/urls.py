@@ -1,7 +1,6 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 
-# Panggil dari folder views masing-masing
 from .views.members_views import MemberViewSet, GuestViewSet, MemberFaceEmbeddingViewSet
 from .views.records_views import (
     TimelineDataRecordViewSet,
@@ -15,11 +14,11 @@ from .views.ai_views import AIConversationViewSet
 
 router = DefaultRouter()
 router.register(r"members", MemberViewSet)
-router.register(r'worship-sessions', WorshipSessionViewSet, basename='worshipsession')
+router.register(r"worship-sessions", WorshipSessionViewSet, basename="worshipsession")
 router.register(r"guests", GuestViewSet)
 router.register(r"face-embeddings", MemberFaceEmbeddingViewSet)
 router.register(r"timeline", TimelineDataRecordViewSet)
-router.register(r"attendance", AttendanceViewSet)
+router.register(r'attendances', AttendanceViewSet, basename='attendance')
 router.register(r"reports", SummaryReportViewSet)
 router.register(r"manage-users", UserManageViewSet)
 router.register(r"ai-conversations", AIConversationViewSet)

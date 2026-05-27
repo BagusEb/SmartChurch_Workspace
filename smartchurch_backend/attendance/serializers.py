@@ -3,6 +3,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
 from .models import (
     Member,
     Guest,
@@ -46,9 +47,40 @@ class TimelineDataRecordSerializer(serializers.ModelSerializer):
 
 
 class AttendanceSerializer(serializers.ModelSerializer):
+    session_name = serializers.CharField(source='session.session_name', read_only=True)
+    display_name = serializers.SerializerMethodField()
+    status_type = serializers.SerializerMethodField()
+
     class Meta:
         model = Attendance
-        fields = "__all__"
+        fields = [
+            'id', 
+            'member', 
+            'guest', 
+            'facedetection', 
+            'session', 
+            'session_name', 
+            'display_name',
+            'status_type',
+            'attendance_date', 
+            'check_in_time', 
+            'confidence', 
+            'notes', 
+            'created_at'
+        ]
+    def get_display_name(self, obj):
+        if obj.member:
+            return obj.member.full_name 
+        elif obj.guest:
+            return obj.guest.full_name
+        return "Tidak Diketahui"
+
+    def get_status_type(self, obj):
+        if obj.member:
+            return "Member"
+        elif obj.guest:
+            return "Guest"
+        return "Unknown"
 
 
 class AIConversationSerializer(serializers.ModelSerializer):

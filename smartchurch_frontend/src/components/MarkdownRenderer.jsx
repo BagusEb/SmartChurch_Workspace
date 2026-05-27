@@ -39,7 +39,6 @@ const MarkdownImage = ({ src, alt }) => {
             onClick={handleDownload}
             aria-label="Unduh gambar"
             title="Unduh gambar"
-            data-html2canvas-ignore="true"
             className="flex items-center gap-1 bg-slate-900/85 hover:bg-slate-900 px-2.5 py-1.5 rounded-lg text-white text-xs transition-all"
           >
             <Download size={14} />
@@ -49,7 +48,6 @@ const MarkdownImage = ({ src, alt }) => {
             onClick={() => setIsOverlayOpen(true)}
             aria-label="Perbesar gambar"
             title="Perbesar gambar"
-            data-html2canvas-ignore="true"
             className="flex items-center gap-1 bg-slate-900/85 hover:bg-slate-900 px-2.5 py-1.5 rounded-lg text-white text-xs transition-all"
           >
             <Maximize2 size={14} />

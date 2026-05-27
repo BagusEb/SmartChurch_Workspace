@@ -4,8 +4,10 @@ from datetime import date, datetime
 
 from dateutil.relativedelta import relativedelta
 from django.db import transaction
+from rest_framework import viewsets, status
 from django.db.models import Avg, Count, Q
 from django.utils import timezone
+from attendance.serializers import WorshipSessionSerializer
 from langchain_core.messages import HumanMessage
 from langchain_openrouter import ChatOpenRouter
 from rest_framework import viewsets
@@ -21,6 +23,7 @@ from ..models import (
     Member,
     SummaryReport,
     TimelineDataRecord,
+    WorshipSession,
 )
 from ..serializers import (
     AttendanceSerializer,
@@ -274,6 +277,74 @@ class AttendanceViewSet(viewsets.ModelViewSet):
     )
     serializer_class = AttendanceSerializer
 
+
+class WorshipSessionViewSet(viewsets.ModelViewSet):
+    queryset = WorshipSession.objects.all()
+    # Assume you or your friend already created a serializer for this
+    # serializer_class = WorshipSessionSerializer 
+
+    serializer_class = WorshipSessionSerializer
+    
+    # ============================================================
+    # 1. GATEWAY: START SESSION (POST /api/worship-sessions/start_session/)
+    # ============================================================
+    @action(detail=False, methods=['post'])
+    def start_session(self, request):
+        session_name = request.data.get('session_name')
+        
+        active_session = WorshipSession.objects.filter(status='active').first()
+        if active_session:
+            return Response({"error": "Masih ada sesi yang aktif. Akhiri sesi sebelumnya terlebih dahulu."}, status=400)
+
+        if not session_name:
+             return Response({"error": "Nama sesi wajib diisi!"}, status=400)
+
+        # 👇 PASTIKAN BAGIAN INI MENYERTAKAN date=timezone.now().date() 👇
+        new_session = WorshipSession.objects.create(
+            session_name=session_name,
+            date=timezone.now().date(),    # INI YANG TADI HILANG
+            start_time=timezone.now(),
+            status='active'
+        )
+
+        serializer = self.get_serializer(new_session)
+        return Response(serializer.data, status=201)
+
+    # ============================================================
+    # 2. GATEWAY: END SESSION (POST /api/worship-sessions/end_session/)
+    # ============================================================
+    @action(detail=False, methods=['post'])
+    def end_session(self, request):
+        """Closes the currently active session and locks the final timestamp."""
+        session_id = request.data.get('session_id')
+
+        try:
+            # Find the targeted session in the database
+            session = WorshipSession.objects.get(id=session_id)
+            
+            if session.status == 'completed':
+                return Response(
+                    {"error": "This session has already been closed dynamicly."}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Update the lifecycle metadata
+            session.status = 'completed'
+            session.end_time = timezone.now()
+            session.save()
+
+            return Response({
+                "message": "Worship session closed successfully.",
+                "session_id": session.id,
+                "status": session.status,
+                "end_time": session.end_time
+            }, status=status.HTTP_200_OK)
+
+        except WorshipSession.DoesNotExist:
+            return Response(
+                {"error": "Worship session not found."}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 class SummaryReportViewSet(viewsets.ModelViewSet):
     queryset = SummaryReport.objects.all().order_by("-created_at")
@@ -697,39 +768,38 @@ Ringkas dalam beberapa kalimat:
     @action(detail=False, methods=["get"], url_path="sessions")
     def sessions(self, request):
         year_param = request.query_params.get("year")
-        qs = Attendance.objects.all()
+        qs = WorshipSession.objects.all()
         if year_param:
             try:
                 year = int(year_param)
                 start = date(year, 1, 1)
                 end = date(year + 1, 1, 1)
-                qs = qs.filter(attendance_date__gte=start, attendance_date__lt=end)
+                qs = qs.filter(date__gte=start, date__lt=end)
             except (TypeError, ValueError):
                 pass
 
-        sessions_qs = (
-            qs.values("attendance_date")
-            .annotate(
-                total=Count("id"),
-                member_count=Count("member", filter=Q(member__isnull=False)),
-                guest_count=Count("guest", filter=Q(guest__isnull=False)),
-            )
-            .order_by("-attendance_date")
-        )
+        sessions_qs = qs.annotate(
+            total=Count("attendances"),
+            member_count=Count("attendances", filter=Q(attendances__member__isnull=False)),
+            guest_count=Count("attendances", filter=Q(attendances__guest__isnull=False)),
+        ).order_by("-date", "-start_time")
 
         data = []
-        for row in sessions_qs:
-            session_date = row["attendance_date"]
+        for session in sessions_qs:
+            session_date = session.date
             eligible = Member.objects.filter(
                 member_status="active",
                 created_at__date__lte=session_date,
             ).count()
-            absent = max(0, eligible - row["member_count"])
+            absent = max(0, eligible - session.member_count)
             data.append({
+                "session_id": session.id,
+                "session_name": session.session_name,
+                "status": session.status,
                 "date": session_date,
-                "total": row["total"],
-                "member_count": row["member_count"],
-                "guest_count": row["guest_count"],
+                "total": session.total,
+                "member_count": session.member_count,
+                "guest_count": session.guest_count,
                 "absent_count": absent,
             })
         serializer = SessionSerializer(data, many=True)
@@ -774,3 +844,5 @@ Ringkas dalam beberapa kalimat:
 class FollowupMemberViewSet(viewsets.ModelViewSet):
     queryset = FollowupMember.objects.select_related("member").order_by("-created_at")
     serializer_class = FollowupMemberDetailSerializer
+
+

@@ -126,4 +126,17 @@ class SummaryReportAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
+# ==========================================
+# WORSHIP SESSION
+# ==========================================
+from .models import WorshipSession
+
+@admin.register(WorshipSession)
+class WorshipSessionAdmin(admin.ModelAdmin):
+    list_display = ("id", "session_name", "date", "start_time", "end_time", "status")
+    list_filter = ("status", "date")
+    search_fields = ("session_name",)
+    ordering = ("-date", "-start_time")
+
+
 admin.site.register(UserProfile)

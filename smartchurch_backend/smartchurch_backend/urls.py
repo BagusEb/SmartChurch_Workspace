@@ -46,6 +46,7 @@ urlpatterns = [
         name="chat_thread_with_id",
     ),
     *medias,
-
+    
     path("api/", include("cv_attendance.urls")),
+    *static(settings.STATIC_URL, document_root=settings.STATIC_ROOT),
 ]

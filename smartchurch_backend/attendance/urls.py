@@ -6,6 +6,7 @@ from .views.members_views import MemberViewSet, GuestViewSet, MemberFaceEmbeddin
 from .views.records_views import (
     TimelineDataRecordViewSet,
     AttendanceViewSet,
+    WorshipSessionViewSet,
     SummaryReportViewSet,
     FollowupMemberViewSet,
 )
@@ -14,6 +15,7 @@ from .views.ai_views import AIConversationViewSet
 
 router = DefaultRouter()
 router.register(r"members", MemberViewSet)
+router.register(r'worship-sessions', WorshipSessionViewSet, basename='worshipsession')
 router.register(r"guests", GuestViewSet)
 router.register(r"face-embeddings", MemberFaceEmbeddingViewSet)
 router.register(r"timeline", TimelineDataRecordViewSet)

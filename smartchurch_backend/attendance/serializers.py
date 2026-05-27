@@ -13,6 +13,7 @@ from .models import (
     SummaryReport,
     UserProfile,
     FollowupMember,
+    WorshipSession,
 )
 
 
@@ -33,6 +34,10 @@ class MemberFaceEmbeddingSerializer(serializers.ModelSerializer):
         model = MemberFaceEmbedding
         fields = "__all__"
 
+class WorshipSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorshipSession
+        fields = '__all__'
 
 class TimelineDataRecordSerializer(serializers.ModelSerializer):
     class Meta:
@@ -89,6 +94,9 @@ class GuestConversionSerializer(serializers.ModelSerializer):
 
 
 class SessionSerializer(serializers.Serializer):
+    session_id = serializers.IntegerField(required=False)
+    session_name = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.CharField(required=False)
     date = serializers.DateField()
     total = serializers.IntegerField()
     member_count = serializers.IntegerField()

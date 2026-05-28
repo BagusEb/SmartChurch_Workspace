@@ -153,6 +153,11 @@ export const updateUser = async (id, payload) => await apiClient.put(`/manage-us
 export const deleteUser = async (id) => await apiClient.delete(`/manage-users/${id}/`);
 
 // --- Reports API ---
+export const getAttendances = async () => {
+  const response = await apiClient.get('/attendances/');
+  return response.data;
+};
+
 export const getYearlyAttendanceReport = async (year = null) => {
   const params = {};
   if (year) params.year = year;

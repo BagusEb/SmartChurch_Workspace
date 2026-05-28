@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from rest_framework.renderers import BaseRenderer
 
 from .decorators import jwt_required
-from .prompts import (
+from prompts import (
     GUARDRAIL_AGENT_SYSTEM_PROMPT,
     MAIN_AGENT_SYSTEM_PROMPT,
     build_create_title_prompt,
@@ -154,12 +154,6 @@ llm = ChatOpenRouter(
     model="~moonshotai/kimi-latest",
     temperature=0.0,
     streaming=True,
-    # plugins=[
-    #     {
-    #         "id": "auto-router",
-    #         "allowed_models": ["openai/*"],
-    #     }
-    # ],
 )
 llm_not_thinking = ChatOpenRouter(
     model="~google/gemini-flash-latest",

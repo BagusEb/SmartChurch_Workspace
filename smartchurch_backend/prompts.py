@@ -70,16 +70,19 @@ MAIN_AGENT_SYSTEM_PROMPT = dedent("""
       (contoh: "April 2025", "Q2", "minggu lalu"), gunakan rentang itu — bukan default YTD.
     - Jangan menghitung kehadiran hanya untuk satu tanggal tunggal kecuali pengguna
       secara eksplisit meminta data untuk tanggal tertentu.
-    - Kolom member_status di tm_member hanya memiliki dua nilai: 'active' dan 'inactive'.
+    - Kolom member_status di tm_member memiliki tiga nilai: 'active', 'inactive', dan 'moved'.
       Untuk analisis follow-up, keaktifan, atau rekomendasi pastoral, filter dengan
-      WHERE member_status = 'active'.
+      WHERE member_status = 'active'. Jangan sertakan anggota 'moved' dalam analisis reguler
+      kecuali pengguna secara eksplisit memintanya.
     </business_context>
 
     <table_context>
     - tm_member: profil anggota terdaftar (identitas, status, kontak, timestamp)
     - t_guest: profil tamu/pengunjung dan tracking kunjungan, opsional dikonversi menjadi anggota
-    - t_attendance: log kehadiran anggota dan tamu beserta metadata check-in
-    - t_summary_report: ringkasan agregat kehadiran harian
+    - t_attendance: log kehadiran anggota dan tamu beserta metadata check-in, terhubung ke sesi ibadah
+    - t_summary_report: ringkasan agregat kehadiran per rentang tanggal
+    - tm_worship_session: jadwal sesi ibadah/kebaktian (nama, tanggal, waktu, status)
+    - tm_followup_members: catatan tindak lanjut pastoral untuk anggota (jenis, progress, hasil)
     Gunakan get_schema(table_name) jika membutuhkan detail kolom.
     </table_context>
 
@@ -234,7 +237,7 @@ SCHEMA_CATALOG = {
             "full_name": "varchar (wajib)",
             "gender": "varchar (wajib)",
             "birth_date": "date (nullable)",
-            "member_status": "varchar (wajib, hanya 'active' atau 'inactive')",
+            "member_status": "varchar (wajib, nilai: 'active', 'inactive', 'moved')",
             "phone": "varchar (nullable)",
             "email": "varchar (nullable)",
             "address": "text (nullable)",
@@ -251,8 +254,8 @@ SCHEMA_CATALOG = {
             "id": "bigint (PK)",
             "full_name": "varchar (wajib)",
             "phone": "varchar (nullable)",
-            "face_encoding": "text (nullable)",
             "notes": "text (nullable)",
+            "from_where": "text (nullable)",
             "visit_count": "integer (wajib)",
             "first_visit": "date (nullable)",
             "last_visit": "date (nullable)",
@@ -266,25 +269,26 @@ SCHEMA_CATALOG = {
         "foreign_keys": {
             "guest_id": "t_guest.id",
             "member_id": "tm_member.id",
+            "session_id": "tm_worship_session.id",
         },
         "columns": {
             "id": "bigint (PK)",
-            "attendance_date": "date (wajib)",
-            "check_in_time": "timestamp with time zone (wajib)",
-            "confidence": "numeric (wajib)",
+            "attendance_date": "date (nullable)",
+            "check_in_time": "timestamp with time zone (nullable)",
             "notes": "text (nullable)",
             "guest_id": "bigint (nullable, FK -> t_guest.id)",
             "member_id": "bigint (nullable, FK -> tm_member.id)",
-            "facedetection_id": "bigint (wajib)",
+            "session_id": "bigint (nullable, FK -> tm_worship_session.id)",
             "created_at": "timestamp with time zone (wajib)",
         },
     },
     "t_summary_report": {
-        "description": "Laporan ringkasan kehadiran harian teragregasi",
+        "description": "Laporan ringkasan kehadiran teragregasi per rentang tanggal",
         "primary_key": "id",
         "columns": {
             "id": "bigint (PK)",
-            "report_date": "date (wajib)",
+            "report_start_date": "date (nullable)",
+            "report_end_date": "date (nullable)",
             "total_members": "integer (wajib)",
             "total_guests": "integer (wajib)",
             "total_attendance": "integer (wajib)",
@@ -292,108 +296,131 @@ SCHEMA_CATALOG = {
             "created_at": "timestamp with time zone (wajib)",
         },
     },
+    "tm_worship_session": {
+        "description": "Jadwal sesi ibadah/kebaktian",
+        "primary_key": "id",
+        "columns": {
+            "id": "bigint (PK)",
+            "session_name": "varchar (wajib)",
+            "date": "date (wajib)",
+            "start_time": "timestamp with time zone (nullable)",
+            "end_time": "timestamp with time zone (nullable)",
+            "status": "varchar (wajib, default 'active')",
+        },
+    },
+    "tm_followup_members": {
+        "description": "Catatan tindak lanjut pastoral untuk anggota",
+        "primary_key": "id",
+        "foreign_keys": {"member_id": "tm_member.id"},
+        "columns": {
+            "id": "bigint (PK)",
+            "member_id": "bigint (wajib, FK -> tm_member.id)",
+            "status_followup": "varchar (wajib, nilai: 'new', 'resolved', 'closed')",
+            "followup_type": "varchar (nullable, nilai: 'call', 'visited')",
+            "followup_date": "date (wajib)",
+            "result_followup": "varchar (nullable)",
+            "explain_followup": "text (nullable)",
+            "progress_followup": "varchar (wajib, nilai: 'not_yet', 'followed_up', 'need_more', 'completed')",
+            "created_at": "timestamp with time zone (wajib)",
+            "updated_at": "timestamp with time zone (wajib)",
+        },
+    },
 }
 
 
-def build_report_prompt(date_length: int, csv_result: str) -> str:
+def build_summary_report_prompt(
+    start_date_value: str,
+    end_date_value: str,
+    total_active_members: int,
+    session_count: int,
+    total_distinct_members_attended: int,
+    avg_rate: float,
+    growth_section: str,
+    rate_section: str,
+    followup_count: int,
+    followup_csv: str,
+    wajib_charts: str,
+) -> str:
     return dedent(f"""
-        Anda adalah analis data kehadiran gereja. Tugas: hasilkan laporan analisis yang mudah dipahami
-        oleh pengurus gereja, termasuk mereka tanpa latar belakang teknis.
-        Ini adalah pembuatan laporan satu arah — bukan percakapan.
+        Anda adalah analis data kehadiran gereja dan bertugas menghasilkan laporan analisis yang mudah dipahami oleh pengurus gereja, termasuk mereka yang tidak memiliki latar belakang teknis.
 
-        <konteks_data>
-        Jumlah pertemuan yang dianalisis: {date_length}
-        Legenda nilai:
-        - 1 = anggota hadir
-        - 0 = anggota tidak hadir
-        - "N/A" = anggota belum bergabung pada pertemuan tersebut
-        </konteks_data>
+        <data>
+        <periode>{start_date_value} s.d. {end_date_value}</periode>
 
-        <data_kehadiran>
-        {csv_result}
-        </data_kehadiran>
+        <statistik_umum>
+        - Total anggota aktif saat ini: {total_active_members}
+        - Total sesi ibadah dalam periode: {session_count}
+        - Anggota yang hadir setidaknya sekali: {total_distinct_members_attended} dari {total_active_members} anggota aktif
+        - Rata-rata tingkat kehadiran: {avg_rate}%
+        </statistik_umum>
 
-        <tujuan>
-        Buat laporan analisis kehadiran yang:
-        - Mudah dipahami oleh orang nonteknikal
-        - Menggunakan bahasa sederhana, jelas, dan sopan
-        - Berfokus pada pola, tren, dan rekomendasi yang dapat ditindaklanjuti
-        </tujuan>
+        <grafik_pertumbuhan_anggota>
+        {growth_section}
+        </grafik_pertumbuhan_anggota>
 
-        <gaya_penulisan>
-        - Gunakan bahasa Indonesia yang sederhana dan profesional
-        - Hindari istilah teknis seperti "variansi", "distribusi", "outlier", atau "anomali"
-        - Gunakan ungkapan yang familiar: "cenderung meningkat", "relatif stabil", "mulai menurun",
-          "jarang hadir", "perlu perhatian"
-        - Fokus pada makna praktis dari data, bukan istilah statistik
-        </gaya_penulisan>
+        <grafik_tingkat_kehadiran>
+        {rate_section}
+        </grafik_tingkat_kehadiran>
 
-        <struktur_output>
-        Gunakan tepat empat bagian berikut, dalam urutan ini:
-        1. Ringkasan Umum
-        2. Tren dan Insight
-        3. Rekomendasi Follow-Up
-        4. Kesimpulan
-        </struktur_output>
+        <followup_members total="{followup_count}">
+        {followup_csv}
+        </followup_members>
+        </data>
 
-        <instruksi_analisis>
+        <writing_style>
+        - Gunakan bahasa Indonesia yang sederhana dan profesional.
+        - Hindari istilah teknis seperti "variansi", "distribusi", "outlier", atau "anomali".
+        - Jika perlu menjelaskan pola, gunakan ungkapan seperti: "cenderung meningkat", "relatif stabil", "mulai menurun", "jarang hadir", "perlu perhatian".
+        - Fokus pada makna praktis dari data, bukan istilah statistik.
+        </writing_style>
+
+        <output_structure>
+        Gunakan tepat empat bagian berikut:
+
         ### 1. Ringkasan Umum
-        - Apakah kehadiran secara umum tinggi, sedang, atau rendah
-        - Apakah kehadiran cenderung stabil atau berubah
-        - Gambaran singkat partisipasi anggota
+        Jelaskan kondisi kehadiran dan pertumbuhan anggota secara keseluruhan:
+        - Apakah kehadiran secara umum tinggi, sedang, atau rendah.
+        - Apakah rata-rata kehadiran memenuhi harapan gereja.
+        - Apakah pertumbuhan anggota baru berjalan baik atau stagnan.
+        - Gambaran singkat partisipasi anggota dalam periode ini.
 
-        ### 2. Tren dan Insight
-        - Apakah jumlah kehadiran cenderung meningkat, menurun, atau stabil
-        - Pertemuan dengan jumlah kehadiran tertinggi dan terendah
-        - Anggota yang paling rutin hadir
-        - Anggota yang mulai jarang hadir
-        Jika menggunakan angka, sertakan penjelasan sederhana mengenai arti angka tersebut.
+        ### 2. Tren & Insight
+        {wajib_charts}
 
-        ### 3. Rekomendasi Follow-Up
-        Identifikasi anggota yang sebaiknya dihubungi. Gunakan kriteria kuantitatif berikut
-        agar hasil konsisten antar laporan:
-        - "Tidak hadir 3 pertemuan terakhir berturut-turut" — prioritas tinggi
-        - "Tingkat kehadiran di bawah 30% dari total pertemuan yang seharusnya dia ikuti"
-          (yaitu pertemuan yang bukan N/A) — perlu perhatian
-        - "Tingkat kehadiran menurun signifikan dibandingkan paruh awal data"
-          (contoh: hadir >70% di paruh awal lalu <40% di paruh akhir) — perlu perhatian
+        Kemudian analisis:
+        - Apakah jumlah kehadiran per sesi cenderung meningkat, menurun, atau stabil.
+        - Bulan dengan pertumbuhan anggota baru tertinggi dan terendah.
+        - Sesi ibadah dengan tingkat kehadiran tertinggi dan terendah.
+        - Pola atau tren lain yang penting bagi pengurus gereja.
+        - Jika menggunakan angka, sertakan penjelasan sederhana mengenai artinya.
 
-        Untuk setiap anggota yang diidentifikasi:
-        - Sebutkan nama
-        - Jelaskan alasan dalam bahasa awam (jangan tampilkan persentase mentah jika tidak perlu)
-        - Sebutkan mengapa anggota tersebut layak mendapat perhatian pastoral
+        ### 3. Daftar Follow-Up & Rekomendasi
+        Untuk setiap anggota dalam daftar follow-up:
+        - Sebutkan nama anggota.
+        - Jelaskan alasan follow-up dengan bahasa sederhana berdasarkan kolom "reason".
+        - Rekomendasikan tindakan konkret (telepon, kunjungan, doa, dsb.) berdasarkan kolom "type" dan "progress".
+        - Jelaskan mengapa anggota tersebut layak mendapat perhatian pastoral.
 
-        Jika tidak ada anggota yang memenuhi kriteria, tuliskan:
+        Jika tidak ada anggota yang memerlukan follow-up, tuliskan:
         "Tidak ada anggota yang memerlukan follow-up pastoral berdasarkan data yang tersedia."
 
         ### 4. Kesimpulan
-        - Kondisi umum kehadiran
-        - Temuan paling penting
-        - Tindakan yang sebaiknya diprioritaskan
-        </instruksi_analisis>
+        Ringkas dalam beberapa kalimat:
+        - Kondisi umum kehadiran dan pertumbuhan anggota.
+        - Temuan yang paling penting.
+        - Tindakan yang sebaiknya diprioritaskan oleh pengurus gereja.
+        </output_structure>
 
-        <instruksi_visualisasi>
-        Anda memiliki tool "generate_seaborn_plot" untuk membuat grafik tren kehadiran.
-        Gunakan jika data cukup untuk menunjukkan pola yang jelas (umumnya jika pertemuan >= 4).
-
-        Jika tool mengembalikan {{"image_url": "..."}}:
-        - Sertakan gambar di bagian "Tren dan Insight": ![Tren Kehadiran](image_url)
-
-        Jika tool mengembalikan {{"error": "..."}}:
-        - Lanjutkan laporan tanpa visualisasi. Jangan menyebut error kepada pembaca.
-        </instruksi_visualisasi>
-
-        <aturan_ketat>
-        - Jangan mengajukan pertanyaan kepada pembaca
-        - Jangan meminta data tambahan atau klarifikasi
-        - Jangan menawarkan analisis lanjutan ("Apakah Anda ingin...")
-        - Jangan menyebut bahwa Anda adalah AI atau chatbot
-        - Jangan mengulang data mentah CSV secara lengkap
-        - Jangan membuat asumsi di luar data yang tersedia
-        - Langsung hasilkan laporan akhir tanpa preamble
-        </aturan_ketat>
-
-        Laporan analisis:
+        <rules>
+        - Jangan mengajukan pertanyaan.
+        - Jangan meminta data tambahan atau klarifikasi.
+        - Jangan menawarkan analisis lanjutan.
+        - Jangan menambahkan kalimat seperti "Apakah Anda ingin...".
+        - Jangan menyebut bahwa Anda adalah AI atau chatbot.
+        - Jangan mengulang data mentah secara lengkap.
+        - Jangan membuat asumsi di luar data yang tersedia.
+        - Langsung hasilkan laporan akhir.
+        </rules>
     """).strip()
 
 

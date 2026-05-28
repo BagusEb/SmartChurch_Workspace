@@ -175,8 +175,8 @@ export const getReportDetail = async (id) => {
   return response.data;
 };
 
-export const generateYearlyReport = async (start_date, end_date) => {
-  const response = await apiClient.post('/reports/generate-yearly-report/', { start_date, end_date });
+export const generateReport = async (start_date, end_date) => {
+  const response = await apiClient.post('/reports/generate-report/', { start_date, end_date });
   return response.data;
 };
 

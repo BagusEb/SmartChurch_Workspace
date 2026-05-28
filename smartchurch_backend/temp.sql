@@ -12,4 +12,4 @@ CREATE ROLE "AI_Database" WITH
 GRANT CONNECT ON DATABASE smartchurch_db TO "AI_Database";
 
 
-GRANT SELECT ON TABLE public.t_summary_report, public.t_guest, public.t_attendance, public.tm_member TO "AI_Database";
+GRANT SELECT ON TABLE public.t_summary_report, public.t_guest, public.t_attendance, public.tm_member, public.tm_worship_session, public.tm_followup_members TO "AI_Database";

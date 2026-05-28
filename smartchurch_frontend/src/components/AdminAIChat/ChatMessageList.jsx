@@ -38,7 +38,8 @@ export default function ChatMessageList({ messages, isStreaming, activeToolCall,
 
       {messages.reduce((acc, msg, i) => {
         if (!msg.data) return acc;
-        const content = msg.data?.content;
+        const content = msg.data?.content ?? '';
+        const hasContent = content.trim().length > 0;
         const toolCalls = msg.data?.tool_calls ?? [];
         const type = msg.type;
 
@@ -48,7 +49,7 @@ export default function ChatMessageList({ messages, isStreaming, activeToolCall,
         for (const tc of toolCalls) acc.toolNames.add(tc.name);
 
         const isLast = i === messages.length - 1;
-        if (isLast && content === '') {
+        if (isLast && !hasContent) {
           if (acc.toolNames.size > 0) {
             acc.components.push(
               <div key={i} className="flex flex-wrap gap-2 pl-7">
@@ -61,7 +62,7 @@ export default function ChatMessageList({ messages, isStreaming, activeToolCall,
           return acc;
         }
 
-        if (!content) return acc;
+        if (!hasContent) return acc;
 
         acc.components.push(
           <div key={i} className="flex flex-col gap-1.5">

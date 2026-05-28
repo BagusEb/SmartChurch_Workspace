@@ -15,7 +15,7 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from sqlalchemy import create_engine, text
 
-from .prompts import (
+from prompts import (
     GENERATE_SEABORN_PLOT_TOOL_DESCRIPTION,
     GET_SCHEMA_TOOL_DESCRIPTION,
     QUERY_POSTGRES_TOOL_DESCRIPTION,

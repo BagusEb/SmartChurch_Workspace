@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm';
 const PAGE_WIDTH = 595.28;
 const H_PADDING = 45;
 const CONTENT_WIDTH = PAGE_WIDTH - H_PADDING * 2;
-const IMAGE_BOX_HEIGHT = 220;
+const PORTRAIT_IMAGE_HEIGHT = 320;
 
 const styles = StyleSheet.create({
   page: {
@@ -38,14 +38,16 @@ const styles = StyleSheet.create({
   imageBlock: { marginBottom: 8 },
   imageWrapper: {
     width: CONTENT_WIDTH,
-    height: IMAGE_BOX_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
     marginVertical: 10,
   },
-  image: {
+  imageLandscape: {
     width: CONTENT_WIDTH,
-    height: IMAGE_BOX_HEIGHT,
+    objectFit: 'contain',
+  },
+  imagePortrait: {
+    height: PORTRAIT_IMAGE_HEIGHT,
     objectFit: 'contain',
   },
   imageCaption: { fontSize: 9, color: '#94a3b8', textAlign: 'center', marginBottom: 8 },
@@ -86,6 +88,44 @@ function extractTextFromNode(node) {
   if (node.type === 'text') return node.value || '';
   if (!node.children?.length) return '';
   return node.children.map((child) => extractTextFromNode(child)).join('');
+}
+
+function PDFImage({ src, alt }) {
+  const [ratio, setRatio] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!src || typeof window === 'undefined') return;
+
+    let isMounted = true;
+    const image = new window.Image();
+
+    image.onload = () => {
+      if (!isMounted) return;
+      if (!image.width || !image.height) return;
+      setRatio(image.width / image.height);
+    };
+
+    image.onerror = () => {
+      if (!isMounted) return;
+      setRatio(null);
+    };
+
+    image.src = src;
+
+    return () => {
+      isMounted = false;
+    };
+  }, [src]);
+
+  const isLandscape = ratio === null ? true : ratio >= 1;
+  const imageStyle = isLandscape ? styles.imageLandscape : styles.imagePortrait;
+
+  return (
+    <View style={styles.imageWrapper} wrap={false}>
+      <Image style={imageStyle} src={src} />
+      {alt ? <Text style={styles.imageCaption}>{alt}</Text> : null}
+    </View>
+  );
 }
 
 const components = {
@@ -137,12 +177,7 @@ const components = {
       </View>
     );
   },
-  img: ({ src, alt }) => (
-    <View style={styles.imageWrapper}>
-      <Image style={styles.image} src={src} />
-      {alt ? <Text style={styles.imageCaption}>{alt}</Text> : null}
-    </View>
-  ),
+  img: ({ src, alt }) => <PDFImage src={src} alt={alt} />,
   table: ({ children }) => <View style={styles.table}>{children}</View>,
   thead: ({ children }) => <View>{children}</View>,
   tbody: ({ children }) => <View>{children}</View>,

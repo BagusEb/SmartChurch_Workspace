@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   getYearlyAttendanceReport,
   getSummaryReports,
-  generateYearlyReport,
+  generateReport,
   getReportDetail,
   getFollowUpRecommendations,
   generateFollowUpRecommendations,
@@ -183,7 +183,7 @@ export default function AttendanceReport() {
     try {
       setIsGenerating(true);
       setGenerateError('');
-      await generateYearlyReport(generateStartDate, generateEndDate);
+      await generateReport(generateStartDate, generateEndDate);
       await fetchSavedReports();
       setShowGenerateModal(false);
       setGenerateStartDate('');

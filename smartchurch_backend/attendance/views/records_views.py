@@ -35,7 +35,7 @@ from ..serializers import (
     TimelineDataRecordSerializer,
 )
 from chatbot_ai.tools import generate_seaborn_plot
-
+from prompts import build_summary_report_prompt
 
 def get_year_range(year_param):
     try:
@@ -394,7 +394,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
             }
         )
 
-    @action(detail=False, methods=["post"], url_path="generate-yearly-report")
+    @action(detail=False, methods=["post"], url_path="generate-report")
     def generate_report(self, request):
         start_date_value = request.data.get("start_date")
         end_date_value = request.data.get("end_date")
@@ -595,84 +595,20 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
             if chart_embeds
             else "Tidak ada grafik yang tersedia untuk periode ini."
         )
-
-        report_prompt = f"""
-Anda adalah analis data kehadiran gereja dan bertugas menghasilkan laporan analisis yang mudah dipahami oleh pengurus gereja, termasuk mereka yang tidak memiliki latar belakang teknis.
-
-## DATA
-
-Periode laporan: {start_date_value} s.d. {end_date_value}
-
-Statistik umum:
-- Total anggota aktif saat ini: {total_active_members}
-- Total sesi ibadah dalam periode: {len(session_dates)}
-- Anggota yang hadir setidaknya sekali: {total_distinct_members_attended} dari {total_active_members} anggota aktif
-- Rata-rata tingkat kehadiran: {avg_rate}%
-
-Grafik pertumbuhan anggota baru per bulan:
-{growth_section}
-
-Grafik tingkat kehadiran per sesi ibadah:
-{rate_section}
-
-Daftar anggota yang perlu follow-up (dibuat dalam periode ini), total {len(followup_data)} anggota:
-{followup_csv}
-
-## GAYA PENULISAN
-- Gunakan bahasa Indonesia yang sederhana dan profesional.
-- Hindari istilah teknis seperti "variansi", "distribusi", "outlier", atau "anomali".
-- Jika perlu menjelaskan pola, gunakan ungkapan seperti: "cenderung meningkat", "relatif stabil", "mulai menurun", "jarang hadir", "perlu perhatian".
-- Fokus pada makna praktis dari data, bukan istilah statistik.
-
-## STRUKTUR WAJIB OUTPUT
-
-Gunakan tepat empat bagian berikut:
-
-### 1. Ringkasan Umum
-Jelaskan kondisi kehadiran dan pertumbuhan anggota secara keseluruhan:
-- Apakah kehadiran secara umum tinggi, sedang, atau rendah.
-- Apakah rata-rata kehadiran memenuhi harapan gereja.
-- Apakah pertumbuhan anggota baru berjalan baik atau stagnan.
-- Gambaran singkat partisipasi anggota dalam periode ini.
-
-### 2. Tren & Insight
-{wajib_charts}
-
-Kemudian analisis:
-- Apakah jumlah kehadiran per sesi cenderung meningkat, menurun, atau stabil.
-- Bulan dengan pertumbuhan anggota baru tertinggi dan terendah.
-- Sesi ibadah dengan tingkat kehadiran tertinggi dan terendah.
-- Pola atau tren lain yang penting bagi pengurus gereja.
-- Jika menggunakan angka, sertakan penjelasan sederhana mengenai artinya.
-
-### 3. Daftar Follow-Up & Rekomendasi
-Untuk setiap anggota dalam daftar follow-up:
-- Sebutkan nama anggota.
-- Jelaskan alasan follow-up dengan bahasa sederhana berdasarkan kolom "reason".
-- Rekomendasikan tindakan konkret (telepon, kunjungan, doa, dsb.) berdasarkan kolom "type" dan "progress".
-- Jelaskan mengapa anggota tersebut layak mendapat perhatian pastoral.
-
-Jika tidak ada anggota yang memerlukan follow-up, tuliskan:
-"Tidak ada anggota yang memerlukan follow-up pastoral berdasarkan data yang tersedia."
-
-### 4. Kesimpulan
-Ringkas dalam beberapa kalimat:
-- Kondisi umum kehadiran dan pertumbuhan anggota.
-- Temuan yang paling penting.
-- Tindakan yang sebaiknya diprioritaskan oleh pengurus gereja.
-
-## ATURAN KETAT
-- Jangan mengajukan pertanyaan.
-- Jangan meminta data tambahan atau klarifikasi.
-- Jangan menawarkan analisis lanjutan.
-- Jangan menambahkan kalimat seperti "Apakah Anda ingin...".
-- Jangan menyebut bahwa Anda adalah AI atau chatbot.
-- Jangan mengulang data mentah secara lengkap.
-- Jangan membuat asumsi di luar data yang tersedia.
-- Langsung hasilkan laporan akhir.
-""".strip()
-
-        llm = ChatOpenRouter(model="openrouter/auto", temperature=0.3)
+        report_prompt = build_summary_report_prompt(
+            start_date_value=start_date_value,
+            end_date_value=end_date_value,
+            total_active_members=total_active_members,
+            session_count=len(session_dates),
+            total_distinct_members_attended=total_distinct_members_attended,
+            avg_rate=avg_rate,
+            growth_section=growth_section,
+            rate_section=rate_section,
+            followup_count=len(followup_data),
+            followup_csv=followup_csv,
+            wajib_charts=wajib_charts,
+        )
+        llm = ChatOpenRouter(model="~moonshotai/kimi-latest", temperature=0.3)
         response = llm.invoke([HumanMessage(content=report_prompt)])
         report = response.content
 
@@ -840,5 +776,3 @@ Ringkas dalam beberapa kalimat:
 class FollowupMemberViewSet(viewsets.ModelViewSet):
     queryset = FollowupMember.objects.select_related("member").order_by("-created_at")
     serializer_class = FollowupMemberDetailSerializer
-
-

@@ -7,8 +7,6 @@ import {
   getFollowUpRecommendations,
   generateFollowUpRecommendations,
   getGuestConversionRecommendations,
-  getSessions,
-  getSessionAttendees,
 } from '../service/apiClient';
 
 import { FileText, Download, Filter, Users, TrendingUp, CheckCircle } from 'lucide-react';
@@ -17,9 +15,7 @@ import AIReportsSection from '../components/AttendanceReport/AIReportsSection';
 import GenerateModal from '../components/AttendanceReport/GenerateModal';
 import ViewReportModal from '../components/AttendanceReport/ViewReportModal';
 import RecommendationsSection from '../components/AttendanceReport/RecommendationsSection';
-import SessionsListSection from '../components/AttendanceReport/SessionsListSection';
 import RecommendationDetailModal from '../components/AttendanceReport/RecommendationDetailModal';
-import SessionAttendeesModal from '../components/AttendanceReport/SessionAttendeesModal';
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
@@ -54,13 +50,6 @@ export default function AttendanceReport() {
   const [isSyncingFollowUps, setIsSyncingFollowUps] = useState(false);
   const [followUpSyncMessage, setFollowUpSyncMessage] = useState('');
 
-  // Sessions
-  const [sessions, setSessions] = useState([]);
-  const [isLoadingSessions, setIsLoadingSessions] = useState(true);
-  const [selectedSession, setSelectedSession] = useState(null);
-  const [sessionAttendees, setSessionAttendees] = useState(null);
-  const [isLoadingAttendees, setIsLoadingAttendees] = useState(false);
-
   useEffect(() => {
     const fetchOverview = async () => {
       setIsLoading(true);
@@ -78,21 +67,6 @@ export default function AttendanceReport() {
       }
     };
     fetchOverview();
-  }, [selectedYear]);
-
-  useEffect(() => {
-    const fetchSessions = async () => {
-      setIsLoadingSessions(true);
-      try {
-        const data = await getSessions(selectedYear);
-        setSessions(data);
-      } catch (e) {
-        console.error('Failed to fetch sessions:', e);
-      } finally {
-        setIsLoadingSessions(false);
-      }
-    };
-    fetchSessions();
   }, [selectedYear]);
 
   const fetchSavedReports = useCallback(async () => {
@@ -195,21 +169,6 @@ export default function AttendanceReport() {
     }
   };
 
-  const handleSessionClick = async (session) => {
-    setSelectedSession(session);
-    setSessionAttendees(null);
-    setIsLoadingAttendees(true);
-    try {
-      const data = await getSessionAttendees(session.date);
-      setSessionAttendees(data);
-    } catch {
-      setSessionAttendees({ members: [], guests: [] });
-    } finally {
-      setIsLoadingAttendees(false);
-    }
-  };
-
-
   const formatDate = (dateStr) => {
     if (!dateStr) return '—';
     return new Date(dateStr).toLocaleDateString('id-ID', {
@@ -291,12 +250,6 @@ export default function AttendanceReport() {
           onSelectGuest={(item) => setSelectedRec({ type: 'guest', data: item })}
         />
 
-        <SessionsListSection
-          sessions={sessions}
-          isLoading={isLoadingSessions}
-          onSessionClick={handleSessionClick}
-        />
-
         <AIReportsSection
           savedReports={savedReports}
           isLoadingReports={isLoadingReports}
@@ -333,15 +286,6 @@ export default function AttendanceReport() {
           data={selectedRec.data}
           onClose={() => setSelectedRec(null)}
           onUpdated={fetchRecommendations}
-        />
-      )}
-
-      {selectedSession && (
-        <SessionAttendeesModal
-          session={selectedSession}
-          attendees={sessionAttendees}
-          isLoading={isLoadingAttendees}
-          onClose={() => { setSelectedSession(null); setSessionAttendees(null); }}
         />
       )}
     </>

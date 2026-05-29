@@ -152,12 +152,6 @@ export const createUser = async (payload) => await apiClient.post('/manage-users
 export const updateUser = async (id, payload) => await apiClient.put(`/manage-users/${id}/`, payload);
 export const deleteUser = async (id) => await apiClient.delete(`/manage-users/${id}/`);
 
-// --- Reports API ---
-export const getAttendances = async () => {
-  const response = await apiClient.get('/attendances/');
-  return response.data;
-};
-
 export const getYearlyAttendanceReport = async (year = null) => {
   const params = {};
   if (year) params.year = year;
@@ -208,8 +202,13 @@ export const getSessions = async (year = null) => {
   return response.data;
 };
 
-export const getSessionAttendees = async (date) => {
-  const response = await apiClient.get('/reports/session-attendees/', { params: { date } });
+export const getSessionAttendees = async (sessionId) => {
+  const response = await apiClient.get('/reports/session-attendees/', { params: { session_id: sessionId } });
+  return response.data;
+};
+
+export const markMemberPresent = async (sessionId, memberId) => {
+  const response = await apiClient.post('/reports/mark-member-present/', { session_id: sessionId, member_id: memberId });
   return response.data;
 };
 

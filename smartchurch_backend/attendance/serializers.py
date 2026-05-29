@@ -130,6 +130,8 @@ class SessionSerializer(serializers.Serializer):
     session_name = serializers.CharField(required=False, allow_blank=True)
     status = serializers.CharField(required=False)
     date = serializers.DateField()
+    start_time = serializers.DateTimeField(required=False, allow_null=True) 
+    end_time = serializers.DateTimeField(required=False, allow_null=True)
     total = serializers.IntegerField()
     member_count = serializers.IntegerField()
     guest_count = serializers.IntegerField()

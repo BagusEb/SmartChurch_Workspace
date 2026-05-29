@@ -729,6 +729,8 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                 "session_name": session.session_name,
                 "status": session.status,
                 "date": session_date,
+                "start_time": session.start_time, 
+                "end_time": session.end_time,
                 "total": session.total,
                 "member_count": session.member_count,
                 "guest_count": session.guest_count,
@@ -739,22 +741,26 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="session-attendees")
     def session_attendees(self, request):
-        date_param = request.query_params.get("date")
-        if not date_param:
-            return Response({"error": "date parameter is required"}, status=400)
+        session_id = request.query_params.get("session_id")
+        if not session_id:
+            return Response({"error": "session_id parameter is required"}, status=400)
 
         try:
-            session_date = datetime.strptime(date_param, "%Y-%m-%d").date()
-        except ValueError:
-            return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=400)
+            session = WorshipSession.objects.get(id=session_id)
+        except WorshipSession.DoesNotExist:
+            return Response({"error": "Session not found."}, status=404)
+
+        session_date = session.date
 
         attendances = (
-            Attendance.objects.filter(attendance_date=session_date)
+            Attendance.objects.filter(session_id=session_id)
             .select_related("member", "guest")
         )
 
         members = []
         guests = []
+        attended_member_ids = set()
+
         for a in attendances:
             if a.member:
                 members.append({
@@ -762,6 +768,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                     "full_name": a.member.full_name,
                     "phone": a.member.phone,
                 })
+                attended_member_ids.add(a.member.id)
             elif a.guest:
                 guests.append({
                     "id": a.guest.id,
@@ -770,8 +777,48 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                     "visit_count": a.guest.visit_count,
                 })
 
-        return Response({"members": members, "guests": guests})
+        # Calculate absent members
+        eligible_members = Member.objects.filter(
+            member_status="active",
+            created_at__date__lte=session_date,
+        )
+        
+        absent_members = []
+        for m in eligible_members:
+            if m.id not in attended_member_ids:
+                absent_members.append({
+                    "id": m.id,
+                    "full_name": m.full_name,
+                    "phone": m.phone,
+                })
 
+        return Response({"members": members, "guests": guests, "absent": absent_members})
+
+    @action(detail=False, methods=["post"], url_path="mark-member-present")
+    def mark_member_present(self, request):
+        session_id = request.data.get("session_id")
+        member_id = request.data.get("member_id")
+
+        if not session_id or not member_id:
+            return Response({"error": "session_id and member_id are required"}, status=400)
+
+        try:
+            session = WorshipSession.objects.get(id=session_id)
+            member = Member.objects.get(id=member_id)
+        except (WorshipSession.DoesNotExist, Member.DoesNotExist):
+            return Response({"error": "Session or Member not found."}, status=404)
+
+        if Attendance.objects.filter(session_id=session_id, member_id=member_id).exists():
+            return Response({"error": "Member is already present in this session."}, status=400)
+
+        Attendance.objects.create(
+            session=session,
+            member=member,
+            attendance_date=session.date,
+            check_in_time=timezone.now()
+        )
+
+        return Response({"success": True, "message": "Member marked as present."})
 
 class FollowupMemberViewSet(viewsets.ModelViewSet):
     queryset = FollowupMember.objects.select_related("member").order_by("-created_at")

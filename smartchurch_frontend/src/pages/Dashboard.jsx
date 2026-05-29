@@ -23,7 +23,7 @@ export default function Dashboard() {
 
   // ── Replace this with your actual Metabase public dashboard URL
   const metabaseEmbedUrl =
-    "http://localhost:3000/public/dashboard/6db98755-5e6c-4839-9026-ed4d6d1c1957";
+    "http://localhost:4000/public/dashboard/91a66be4-76a1-4db1-9289-97d0ad4d0809";
 
   // Controls whether the iframe is in fullscreen overlay mode
   const [isFullscreen, setIsFullscreen] = useState(false);

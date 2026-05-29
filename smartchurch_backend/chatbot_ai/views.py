@@ -45,7 +45,6 @@ from .tools import (
     query_postgres,
     update_canvas,
     clear_canvas,
-    TOOL_NAMES,
 )
 
 # LangSmith tracing — configure from Django settings (moved to settings.py)

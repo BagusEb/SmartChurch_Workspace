@@ -40,6 +40,12 @@ export default function Members() {
   // Holds the member object selected for detail view
   const [selectedMember, setSelectedMember] = useState(null);
 
+  // Controls visibility of the Delete Confirmation modal
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // Holds the member targeted for deletion
+  const [deletingMember, setDeletingMember] = useState(null);
+
   // Form fields — mirrors the API payload structure
   const [formData, setFormData] = useState({
     full_name: '',
@@ -138,16 +144,22 @@ const handleSubmit = async (e) => {
     }
   };
 
-// Asks for confirmation then sends a DELETE request for the given member ID
-  const handleDelete = async (id) => {
-    if (window.confirm("Are you sure you want to delete this member?")) {
-      try {
-        await deleteMember(id); // <--- Pastikan pakai yang ini ya!
-        fetchMembers(); // Refresh the table after deletion
-      } catch (error) {
-        console.error("Failed to delete member:", error);
-        alert("Failed to delete member.");
-      }
+  // Opens the delete confirmation modal for the given member
+  const openDeleteModal = (member) => {
+    setDeletingMember(member);
+    setIsDeleteModalOpen(true);
+  };
+
+  // Sends DELETE request after confirmation in the modal
+  const handleDelete = async () => {
+    try {
+      await deleteMember(deletingMember.id);
+      setIsDeleteModalOpen(false);
+      setDeletingMember(null);
+      fetchMembers();
+    } catch (error) {
+      console.error("Failed to delete member:", error);
+      alert("Failed to delete member.");
     }
   };
 
@@ -432,9 +444,9 @@ const handleSubmit = async (e) => {
                             <Pencil size={15} />
                           </button>
 
-                          {/* Delete — shows a confirmation dialog before deleting */}
+                          {/* Delete — opens confirmation modal before deleting */}
                           <button
-                            onClick={() => handleDelete(member.id)}
+                            onClick={() => openDeleteModal(member)}
                             className="delete-btn p-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg transition-all"
                             title="Hapus Data"
                           >
@@ -644,6 +656,91 @@ const handleSubmit = async (e) => {
                   className="w-full py-2.5 rounded-xl text-sm font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 transition-all"
                 >
                   Tutup
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================
+             DELETE CONFIRMATION MODAL
+             Shown when isDeleteModalOpen is true.
+        ============================================================ */}
+        {isDeleteModalOpen && deletingMember && (
+          <div className="modal-backdrop fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="modal-card bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+                    <Trash2 size={18} className="text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">Hapus Jemaat</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Tindakan ini tidak dapat dibatalkan</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Member preview */}
+              <div className="relative bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 p-6 text-white">
+                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${getAvatarColor(deletingMember.full_name)} shadow-lg flex items-center justify-center text-white text-base font-extrabold mb-3 border-2 border-white/30`}>
+                  {getInitials(deletingMember.full_name)}
+                </div>
+                <h4 className="text-base font-extrabold leading-tight">{deletingMember.full_name}</h4>
+                <p className="text-slate-300 text-xs mt-1 flex items-center gap-2">
+                  {deletingMember.nickname && <span>"{deletingMember.nickname}"</span>}
+                  {deletingMember.nickname && <span className="text-slate-400">•</span>}
+                  <span>{deletingMember.gender === 'L' ? 'Laki-laki' : 'Perempuan'}</span>
+                </p>
+                <span className={`mt-2 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${deletingMember.member_status === 'active' ? 'bg-emerald-400/20 text-emerald-200' : 'bg-white/10 text-white/60'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${deletingMember.member_status === 'active' ? 'bg-emerald-400' : 'bg-white/50'}`} />
+                  {deletingMember.member_status === 'active' ? 'Aktif' : 'Tidak Aktif'}
+                </span>
+              </div>
+
+              {/* Detail fields */}
+              <div className="px-6 py-4 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Tgl Lahir</p>
+                    <p className="text-sm font-semibold text-slate-700">{deletingMember.birth_date || '—'}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">No. HP</p>
+                    <p className="text-sm font-semibold text-slate-700">{deletingMember.phone || '—'}</p>
+                  </div>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Email</p>
+                  <p className="text-sm font-semibold text-slate-700 break-words">{deletingMember.email || '—'}</p>
+                </div>
+                <p className="text-xs text-slate-500 text-center pt-1">Data yang dihapus tidak dapat dikembalikan.</p>
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="px-5 py-2.5 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-all shadow-md"
+                >
+                  Hapus
                 </button>
               </div>
 

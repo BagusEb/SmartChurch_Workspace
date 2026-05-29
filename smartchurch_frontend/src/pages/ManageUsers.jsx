@@ -29,6 +29,12 @@ export default function ManageUsers() {
   // ── Loading state — disables submit button while request is in flight
   const [isLoading, setIsLoading] = useState(false);
 
+  // ── Controls visibility of the Delete Confirmation modal
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // ── Holds the user targeted for deletion
+  const [deletingUser, setDeletingUser] = useState(null);
+
   // ── Default blank form state (reset on "add new")
   const initialFormState = {
     username:   '',
@@ -149,18 +155,22 @@ const handleSubmit = async (e) => {
   //  DELETE USER
   // ============================================================
 
-  // Asks for confirmation then sends a DELETE request for the given user ID
-const handleDelete = async (id) => {
-    if (window.confirm("Are you sure you want to permanently delete this account?")) {
-      try {
-        // Tinggal panggil fungsinya, bye-bye token manual! 👋
-        await deleteUser(id);
-        
-        fetchUsers(); // Refresh the table after deletion
-      } catch (error) {
-        alert("Failed to delete user.");
-        console.error(error);
-      }
+  // Opens the delete confirmation modal for the given user
+  const openDeleteModal = (user) => {
+    setDeletingUser(user);
+    setIsDeleteModalOpen(true);
+  };
+
+  // Sends DELETE request after confirmation in the modal
+  const handleDelete = async () => {
+    try {
+      await deleteUser(deletingUser.id);
+      setIsDeleteModalOpen(false);
+      setDeletingUser(null);
+      fetchUsers();
+    } catch (error) {
+      alert("Failed to delete user.");
+      console.error(error);
     }
   };
   
@@ -441,9 +451,9 @@ const handleDelete = async (id) => {
                             <Edit size={15} />
                           </button>
 
-                          {/* Delete — asks for confirmation before removing */}
+                          {/* Delete — opens confirmation modal before removing */}
                           <button
-                            onClick={() => handleDelete(u.id)}
+                            onClick={() => openDeleteModal(u)}
                             className="delete-btn p-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg transition-all"
                             title="Hapus Permanen"
                           >
@@ -664,6 +674,86 @@ const handleDelete = async (id) => {
             </div>
           </div>
         )}
+        {/* ============================================================
+             DELETE CONFIRMATION MODAL
+             Shown when isDeleteModalOpen is true.
+        ============================================================ */}
+        {isDeleteModalOpen && deletingUser && (
+          <div className="mu-backdrop fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="mu-modal bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+                    <Trash2 size={18} className="text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">Hapus Akun</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Tindakan ini tidak dapat dibatalkan</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* User data list */}
+              <div className="px-6 py-4 space-y-2">
+                <div className="flex items-center justify-between py-2.5 border-b border-slate-100">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Nama Lengkap</span>
+                  <span className="text-sm font-semibold text-slate-700">{displayName(deletingUser)}</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5 border-b border-slate-100">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Username</span>
+                  <span className="font-mono text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg">@{deletingUser.username}</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5 border-b border-slate-100">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Email</span>
+                  <span className="text-sm font-semibold text-slate-700">{deletingUser.email || '—'}</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5 border-b border-slate-100">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Role</span>
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg ${deletingUser.role === 'admin' ? 'bg-indigo-50 text-indigo-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                    <Shield size={10} />
+                    {deletingUser.role === 'admin' ? 'Admin / Committee' : 'Church Leader'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2.5">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</span>
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg ${deletingUser.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${deletingUser.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                    {deletingUser.is_active ? 'Aktif' : 'Nonaktif'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 text-center pt-2">Data yang dihapus tidak dapat dikembalikan.</p>
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="px-5 py-2.5 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-all shadow-md"
+                >
+                  Hapus Permanen
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
+
       </div>
     </>
   );

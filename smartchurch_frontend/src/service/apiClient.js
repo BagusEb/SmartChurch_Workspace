@@ -2,8 +2,10 @@
 import axios from 'axios';
 
 // --- Axios & Token Setup ---
+const API_BASE_URL = '/api/';
+
 const apiClient = axios.create({
-  baseURL: 'http://localhost:8000/api/',
+  baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
 });
 

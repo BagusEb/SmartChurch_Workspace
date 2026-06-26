@@ -32,3 +32,12 @@ UNKNOWN_SAME_FACE_SIM   = 0.75
 LOG_LEVEL     = "INFO"
 LOG_TO_FILE   = True
 LOG_FILE_PATH = BASE_DIR / "smartchurch_ai.log"
+
+# ── REGISTRATION / ENROLLMENT MODE ─────────────────────────────
+# Mode registration tidak memakai cooldown attendance.
+# Dia hanya mencegah wajah yang masih terus terlihat tersimpan berkali-kali setiap frame.
+# Jika wajah hilang dari deteksi lalu muncul lagi setelah timeout ini, akan disimpan lagi.
+ENROLL_LOST_TIMEOUT = 1.2
+
+# Similarity untuk menganggap wajah masih track yang sama selama masih terlihat.
+ENROLL_SAME_FACE_SIM = UNKNOWN_SAME_FACE_SIM

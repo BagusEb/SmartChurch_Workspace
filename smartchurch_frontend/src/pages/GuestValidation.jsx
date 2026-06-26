@@ -1,4 +1,4 @@
-//pages/GuestValidation.jsx
+// src/pages/GuestValidation.jsx
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
@@ -16,6 +16,7 @@ import {
   findValidationAiGuestByAi,
   confirmValidationAiGuest,
   addValidationAiMemberFace,
+  getRegistrationValidationGroups,
 } from "../service/apiClient";
 
 import { findMemberName } from "../components/validationAI/validationHelpers";
@@ -23,6 +24,7 @@ import { findMemberName } from "../components/validationAI/validationHelpers";
 import SessionCard from "../components/validationAI/SessionCard";
 import ValidationRow from "../components/validationAI/ValidationRow";
 import FacePreviewModal from "../components/validationAI/FacePreviewModal";
+
 import {
   VerifyModal,
   GuestModal,
@@ -30,9 +32,16 @@ import {
   RejectModal,
 } from "../components/validationAI/ActionModals";
 
+import RegistrationValidationPanel from "../components/validationRegistration/RegistrationValidationPanel";
+
 export default function GuestValidation() {
   // ─── Data dari backend ───────────────────────────────────────────
   const [validationSessions, setValidationSessions] = useState([]);
+  const [registrationSummary, setRegistrationSummary] = useState({
+    total_pending_embeddings: 0,
+    total_people_groups: 0,
+  });
+
   const [allMembers, setAllMembers] = useState([]);
   const [allGuests, setAllGuests] = useState([]);
 
@@ -83,12 +92,15 @@ export default function GuestValidation() {
   const [verifyMode, setVerifyMode] = useState("ai"); // ai | manual
   const [verifyMemberSearch, setVerifyMemberSearch] = useState("");
   const [selectedVerifyMemberId, setSelectedVerifyMemberId] = useState("");
+
   // ─── Fetch Sessions ───────────────────────────────────────────────
   const fetchSessions = useCallback(async () => {
     setIsLoadingSessions(true);
     setSessionError(null);
+
     try {
       const data = await getValidationAiSessions();
+
       if (data?.success && Array.isArray(data.sessions)) {
         setValidationSessions(data.sessions);
       } else {
@@ -103,10 +115,37 @@ export default function GuestValidation() {
     }
   }, []);
 
-  // ─── Fetch Members + Guests (untuk search dropdown) ───────────────
+  const fetchRegistrationSummary = useCallback(async () => {
+    try {
+      const data = await getRegistrationValidationGroups();
+
+      if (data?.success) {
+        setRegistrationSummary(
+          data.summary || {
+            total_pending_embeddings: 0,
+            total_people_groups: 0,
+          }
+        );
+      } else {
+        setRegistrationSummary({
+          total_pending_embeddings: 0,
+          total_people_groups: 0,
+        });
+      }
+    } catch (error) {
+      console.error("Gagal fetch registration summary:", error);
+      setRegistrationSummary({
+        total_pending_embeddings: 0,
+        total_people_groups: 0,
+      });
+    }
+  }, []);
+
+  // ─── Fetch Members + Guests ───────────────────────────────────────
   const fetchMembersAndGuests = useCallback(async (q = "") => {
     try {
       const data = await getValidationAiMemberGuestData(q);
+
       if (data?.success) {
         setAllMembers(data.members || []);
         setAllGuests(data.guests || []);
@@ -116,18 +155,29 @@ export default function GuestValidation() {
     }
   }, []);
 
-  useEffect(() => {
+  const refreshAllValidationData = useCallback(() => {
     fetchSessions();
-    fetchMembersAndGuests(); // load semua data awal (tanpa filter)
-  }, [fetchSessions, fetchMembersAndGuests]);
+    fetchRegistrationSummary();
+    fetchMembersAndGuests();
+  }, [fetchSessions, fetchRegistrationSummary, fetchMembersAndGuests]);
+
+  useEffect(() => {
+    refreshAllValidationData();
+  }, [refreshAllValidationData]);
 
   // ─── Computed ─────────────────────────────────────────────────────
-  const totalPending = useMemo(() => {
+  const attendancePending = useMemo(() => {
     return validationSessions.reduce(
       (sum, item) => sum + Number(item.summary?.total_pending || 0),
       0
     );
   }, [validationSessions]);
+
+  const registrationPending = Number(
+    registrationSummary?.total_pending_embeddings || 0
+  );
+
+  const totalPending = attendancePending + registrationPending;
 
   const activeSession = useMemo(() => {
     return validationSessions.find(
@@ -143,6 +193,7 @@ export default function GuestValidation() {
         rowKey: `ambiguous-${record.id}`,
         type: "ambiguous",
         label: `Ambiguous #${record.id}`,
+        helper: "Wajah mirip dengan salah satu jemaat, tetapi confidence belum cukup aman.",
         count: 1,
         records: [record],
         recordIds: [record.id],
@@ -173,7 +224,7 @@ export default function GuestValidation() {
         count: group.count || group.records?.length || 0,
         records: group.records || [],
         recordIds:
-          group.record_ids || (group.records || []).map((r) => r.id),
+          group.record_ids || (group.records || []).map((record) => record.id),
         confidence: group.average_confidence,
         representativeImage: group.representative_image,
         aiRecommendation: group.ai_recommendation || null,
@@ -186,13 +237,21 @@ export default function GuestValidation() {
   // ─── Filter member & guest client-side ───────────────────────────
   const filteredMembers = useMemo(() => {
     const keyword = memberSearch.trim().toLowerCase();
+
     if (!keyword) return allMembers;
 
-    return allMembers.filter((m) => {
-      const name = String(m.full_name || "").toLowerCase();
-      const nick = String(m.nickname || "").toLowerCase();
-      const phone = String(m.phone || "").toLowerCase();
-      return name.includes(keyword) || nick.includes(keyword) || phone.includes(keyword);
+    return allMembers.filter((member) => {
+      const name = String(member.full_name || "").toLowerCase();
+      const nick = String(member.nickname || "").toLowerCase();
+      const phone = String(member.phone || "").toLowerCase();
+      const email = String(member.email || "").toLowerCase();
+
+      return (
+        name.includes(keyword) ||
+        nick.includes(keyword) ||
+        phone.includes(keyword) ||
+        email.includes(keyword)
+      );
     });
   }, [allMembers, memberSearch]);
 
@@ -201,11 +260,11 @@ export default function GuestValidation() {
 
     if (!keyword) return allMembers;
 
-    return allMembers.filter((m) => {
-      const name = String(m.full_name || "").toLowerCase();
-      const nick = String(m.nickname || "").toLowerCase();
-      const phone = String(m.phone || "").toLowerCase();
-      const email = String(m.email || "").toLowerCase();
+    return allMembers.filter((member) => {
+      const name = String(member.full_name || "").toLowerCase();
+      const nick = String(member.nickname || "").toLowerCase();
+      const phone = String(member.phone || "").toLowerCase();
+      const email = String(member.email || "").toLowerCase();
 
       return (
         name.includes(keyword) ||
@@ -218,13 +277,14 @@ export default function GuestValidation() {
 
   const filteredGuests = useMemo(() => {
     const keyword = guestSearchName.trim().toLowerCase();
+
     if (!keyword) return [];
 
     return allGuests
-      .filter((g) => {
-        const name = String(g.full_name || "").toLowerCase();
-        const phone = String(g.phone || "").toLowerCase();
-        const from = String(g.from_where || "").toLowerCase();
+      .filter((guest) => {
+        const name = String(guest.full_name || "").toLowerCase();
+        const phone = String(guest.phone || "").toLowerCase();
+        const from = String(guest.from_where || "").toLowerCase();
 
         return (
           name.includes(keyword) ||
@@ -256,7 +316,10 @@ export default function GuestValidation() {
 
   // ─── Row Controls ─────────────────────────────────────────────────
   const toggleRow = (rowKey) => {
-    setExpandedRows((prev) => ({ ...prev, [rowKey]: !prev[rowKey] }));
+    setExpandedRows((prev) => ({
+      ...prev,
+      [rowKey]: !prev[rowKey],
+    }));
   };
 
   const isFaceSelected = (rowKey, recordId) =>
@@ -264,43 +327,55 @@ export default function GuestValidation() {
 
   const toggleFaceSelection = (row, record) => {
     const rowKey = row.rowKey;
+
     setSelectedFaces((prev) => {
       const current = prev[rowKey] || [];
-      if (row.type === "ambiguous") return { ...prev, [rowKey]: [record.id] };
-      if (current.includes(record.id))
-        return { ...prev, [rowKey]: current.filter((id) => id !== record.id) };
-      return { ...prev, [rowKey]: [...current, record.id] };
+
+      if (row.type === "ambiguous") {
+        return {
+          ...prev,
+          [rowKey]: [record.id],
+        };
+      }
+
+      if (current.includes(record.id)) {
+        return {
+          ...prev,
+          [rowKey]: current.filter((id) => id !== record.id),
+        };
+      }
+
+      return {
+        ...prev,
+        [rowKey]: [...current, record.id],
+      };
     });
   };
 
   const getSelectedRecords = (row) => {
     if (!row) return [];
-    if (row.type === "ambiguous") return row.records;
-    const ids = selectedFaces[row.rowKey] || [];
-    return row.records.filter((r) => ids.includes(r.id));
-  };
 
-  const ensureAtLeastOneFace = (row, actionName) => {
-    if (row.type === "ambiguous") return true;
-    const selected = getSelectedRecords(row);
-    if (selected.length === 0) {
-      showToast(`Pilih minimal satu gambar sebelum ${actionName}.`, "warning");
-      return false;
-    }
-    return true;
+    if (row.type === "ambiguous") return row.records;
+
+    const ids = selectedFaces[row.rowKey] || [];
+    return row.records.filter((record) => ids.includes(record.id));
   };
 
   const ensureExactlyOneFaceForGuest = (row) => {
     if (row.type === "ambiguous") return true;
+
     const selected = getSelectedRecords(row);
+
     if (selected.length === 0) {
       showToast("Pilih satu gambar untuk dijadikan Tamu.", "warning");
       return false;
     }
+
     if (selected.length > 1) {
       showToast("Untuk action Tamu, hanya boleh pilih 1 gambar.", "warning");
       return false;
     }
+
     return true;
   };
 
@@ -316,19 +391,21 @@ export default function GuestValidation() {
 
           if (row.type === "ambiguous") {
             nextAmbiguousRecords = nextAmbiguousRecords.filter(
-              (r) => r.id !== row.records[0]?.id
+              (record) => record.id !== row.records[0]?.id
             );
           }
+
           if (row.type === "unknown") {
             nextUnknownGroups = nextUnknownGroups.filter(
-              (g) => `unknown-${g.group_id}` !== row.rowKey
+              (group) => `unknown-${group.group_id}` !== row.rowKey
             );
           }
 
           const totalUnknownRecords = nextUnknownGroups.reduce(
-            (sum, g) => sum + Number(g.count || g.records?.length || 0),
+            (sum, group) => sum + Number(group.count || group.records?.length || 0),
             0
           );
+
           const nextTotalPending =
             nextAmbiguousRecords.length + totalUnknownRecords;
 
@@ -345,19 +422,21 @@ export default function GuestValidation() {
             ambiguous_records: nextAmbiguousRecords,
           };
         })
-        .filter((s) => s.summary.total_pending > 0);
+        .filter((sessionItem) => Number(sessionItem.summary.total_pending || 0) > 0);
     });
 
     setModal(null);
+
     setExpandedRows((prev) => {
-      const c = { ...prev };
-      delete c[row.rowKey];
-      return c;
+      const copy = { ...prev };
+      delete copy[row.rowKey];
+      return copy;
     });
+
     setSelectedFaces((prev) => {
-      const c = { ...prev };
-      delete c[row.rowKey];
-      return c;
+      const copy = { ...prev };
+      delete copy[row.rowKey];
+      return copy;
     });
   };
 
@@ -381,11 +460,18 @@ export default function GuestValidation() {
     setSelectedGuestId("");
     setAiRecommendedGuest(null);
     setShowGuestForm(false);
-    setGuestForm({ full_name: "", phone: "", from_where: "" });
+    setGuestForm({
+      full_name: "",
+      phone: "",
+      from_where: "",
+    });
 
-    setModal({ type: "guest", row, sessionId: activeSessionId });
+    setModal({
+      type: "guest",
+      row,
+      sessionId: activeSessionId,
+    });
   };
-
 
   const resetMemberModalState = () => {
     setMemberMode("existing");
@@ -404,7 +490,12 @@ export default function GuestValidation() {
 
   const openRealAddMemberModal = (row) => {
     resetMemberModalState();
-    setModal({ type: "member", row, sessionId: activeSessionId });
+
+    setModal({
+      type: "member",
+      row,
+      sessionId: activeSessionId,
+    });
   };
 
   const openAddMemberModal = (row) => {
@@ -413,26 +504,35 @@ export default function GuestValidation() {
       return;
     }
 
-  const selected = getSelectedRecords(row);
+    const selected = getSelectedRecords(row);
 
-  if (selected.length === 0) {
-    showToast("Pilih minimal satu gambar sebelum menambahkan ke Jemaat.", "warning");
-    return;
-  }
+    if (selected.length === 0) {
+      showToast(
+        "Pilih minimal satu gambar sebelum menambahkan ke Jemaat.",
+        "warning"
+      );
+      return;
+    }
 
-  if (selected.length === 1) {
+    if (selected.length === 1) {
+      setModal({
+        type: "member-single-face-confirm",
+        row,
+        sessionId: activeSessionId,
+      });
+      return;
+    }
+
+    openRealAddMemberModal(row);
+  };
+
+  const openRejectModal = (row) => {
     setModal({
-      type: "member-single-face-confirm",
+      type: "reject",
       row,
       sessionId: activeSessionId,
     });
-    return;
-  }
-
-  openRealAddMemberModal(row);
-};
-  const openRejectModal = (row) =>
-    setModal({ type: "reject", row, sessionId: activeSessionId });
+  };
 
   // ─── Modal confirm handlers ───────────────────────────────────────
   const handleConfirmVerify = async () => {
@@ -441,7 +541,11 @@ export default function GuestValidation() {
     const row = modal.row;
     const recommendation = row.aiRecommendation;
 
-    if (verifyMode === "ai" && !recommendation?.member_id && !row.matchedMemberId) {
+    if (
+      verifyMode === "ai" &&
+      !recommendation?.member_id &&
+      !row.matchedMemberId
+    ) {
       showToast(
         "Rekomendasi AI tidak memiliki member. Pilih jemaat secara manual.",
         "warning"
@@ -471,12 +575,6 @@ export default function GuestValidation() {
       record_ids: row.recordIds || row.records.map((record) => record.id),
     };
 
-    /*
-      Untuk unknown group:
-      - Backend bisa otomatis pilih center record dari confidence tertinggi.
-      - Kalau user memilih tepat 1 gambar sebelum klik Verify, kita kirim sebagai center_record_id.
-      - Kalau user tidak memilih / memilih lebih dari 1, backend fallback pilih confidence tertinggi.
-    */
     if (row.type === "unknown" && selectedRecords.length === 1) {
       payload.center_record_id = selectedRecords[0].id;
     }
@@ -498,12 +596,8 @@ export default function GuestValidation() {
       );
 
       removeValidatedRows(modal.sessionId, row);
-
-      /*
-        Optional refresh agar data benar-benar sinkron dengan backend.
-        Kalau tidak mau reload list, baris ini boleh dihapus.
-      */
       fetchSessions();
+      fetchRegistrationSummary();
     } catch (error) {
       console.error("Gagal verifikasi AI:", error);
 
@@ -645,18 +739,10 @@ export default function GuestValidation() {
         }.`.trim()
       );
 
-      /*
-        Ambiguous:
-        - row hilang karena record sudah guest_confirmed.
-
-        Unknown group:
-        - selected record guest_confirmed.
-        - record lain rejected oleh backend.
-        - jadi satu group ini juga selesai dan hilang dari pending list.
-      */
       removeValidatedRows(modal.sessionId, row);
 
       fetchSessions();
+      fetchRegistrationSummary();
       fetchMembersAndGuests();
     } catch (error) {
       console.error("Gagal confirm guest:", error);
@@ -679,7 +765,10 @@ export default function GuestValidation() {
     const selectedRecords = getSelectedRecords(row);
 
     if (row.type === "unknown" && selectedRecords.length === 0) {
-      showToast("Pilih minimal satu gambar untuk ditambahkan ke data Jemaat.", "warning");
+      showToast(
+        "Pilih minimal satu gambar untuk ditambahkan ke data Jemaat.",
+        "warning"
+      );
       return;
     }
 
@@ -746,6 +835,7 @@ export default function GuestValidation() {
       removeValidatedRows(modal.sessionId, row);
 
       fetchSessions();
+      fetchRegistrationSummary();
       fetchMembersAndGuests();
     } catch (error) {
       console.error("Gagal tambah wajah member:", error);
@@ -785,11 +875,8 @@ export default function GuestValidation() {
 
       removeValidatedRows(modal.sessionId, row);
 
-      /*
-        Optional: refresh dari backend agar list validasi benar-benar sinkron.
-        Boleh dihapus kalau kamu mau hanya update local state.
-      */
       fetchSessions();
+      fetchRegistrationSummary();
     } catch (error) {
       console.error("Gagal reject validation AI:", error);
 
@@ -848,14 +935,28 @@ export default function GuestValidation() {
               >
                 <ShieldCheck size={24} />
               </div>
+
               <div>
                 <h2 className="text-2xl font-extrabold tracking-tight text-slate-800">
                   Validasi AI Attendance
                 </h2>
+
                 <p className="mt-1 text-sm leading-relaxed text-slate-500">
-                  Pilih worship session, lalu validasi data wajah ambiguous atau
-                  unknown group.
+                  Validasi data attendance terlebih dahulu. Jika kosong, sistem
+                  akan menampilkan data face registration yang belum dikaitkan ke
+                  jemaat.
                 </p>
+
+                {!isLoadingSessions && totalPending > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
+                      Attendance: {attendancePending}
+                    </span>
+                    <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                      Registration: {registrationPending}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -901,8 +1002,9 @@ export default function GuestValidation() {
           <section className="flex min-h-[200px] flex-col items-center justify-center rounded-3xl border border-rose-200 bg-rose-50 p-8 text-center shadow-sm">
             <AlertTriangle size={32} className="mb-3 text-rose-500" />
             <p className="font-extrabold text-rose-800">{sessionError}</p>
+
             <button
-              onClick={fetchSessions}
+              onClick={refreshAllValidationData}
               className="mt-4 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-700"
             >
               Coba Lagi
@@ -910,29 +1012,18 @@ export default function GuestValidation() {
           </section>
         )}
 
-        {/* Empty state */}
+        {/* Registration fallback: tampil hanya kalau attendance validation kosong */}
         {!isLoadingSessions && !sessionError && validationSessions.length === 0 && (
-          <section className="gv-soft-grid flex min-h-[420px] flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600">
-              <CheckCircle size={38} />
-            </div>
-            <h3 className="text-xl font-extrabold text-slate-800">
-              Tidak Ada Data Validasi
-            </h3>
-            <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
-              Saat ini tidak ada worship session yang memiliki timeline record
-              pending.
-            </p>
-            <button
-              onClick={fetchSessions}
-              className="mt-5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700"
-            >
-              Refresh
-            </button>
-          </section>
+          <RegistrationValidationPanel
+            onAfterChange={() => {
+              fetchRegistrationSummary();
+              fetchSessions();
+              fetchMembersAndGuests();
+            }}
+          />
         )}
 
-        {/* Session list */}
+        {/* Session list attendance validation */}
         {!isLoadingSessions && !sessionError && validationSessions.length > 0 && (
           <>
             <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -956,14 +1047,17 @@ export default function GuestValidation() {
                       <h3 className="text-lg font-extrabold text-slate-800">
                         {activeSession.session.session_name}
                       </h3>
+
                       <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
                         Detail Validasi
                       </span>
                     </div>
+
                     <p className="mt-1 text-sm text-slate-500">
                       Klik baris data untuk melihat wajah, lalu pilih action.
                     </p>
                   </div>
+
                   <button
                     onClick={closeSession}
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-50"
@@ -1022,6 +1116,7 @@ export default function GuestValidation() {
             ) : (
               <CheckCircle size={18} />
             )}
+
             <p className="text-sm font-bold">{toast.message}</p>
           </div>
         </div>
@@ -1109,10 +1204,13 @@ export default function GuestValidation() {
                 background: "linear-gradient(135deg,#2563eb,#4f46e5)",
               }}
             >
-              <h3 className="text-base font-extrabold">Hanya 1 Gambar Dipilih</h3>
+              <h3 className="text-base font-extrabold">
+                Hanya 1 Gambar Dipilih
+              </h3>
+
               <p className="mt-1 text-xs leading-relaxed text-blue-100">
-                Untuk meningkatkan akurasi pengenalan berikutnya, sebaiknya pilih lebih
-                dari satu gambar jika tersedia.
+                Untuk meningkatkan akurasi pengenalan berikutnya, sebaiknya
+                pilih lebih dari satu gambar jika tersedia.
               </p>
             </div>
 
@@ -1121,9 +1219,10 @@ export default function GuestValidation() {
                 <p className="text-sm font-extrabold text-amber-800">
                   Tetap lanjut dengan 1 gambar?
                 </p>
+
                 <p className="mt-1 text-xs leading-relaxed text-amber-700">
-                  Jika memilih “Tambah Gambar”, popup ini akan ditutup dan kamu bisa
-                  memilih gambar tambahan dari group ini.
+                  Jika memilih “Tambah Gambar”, popup ini akan ditutup dan kamu
+                  bisa memilih gambar tambahan dari group ini.
                 </p>
               </div>
 

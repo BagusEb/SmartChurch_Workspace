@@ -334,4 +334,34 @@ export const addValidationAiMemberFace = async (payload) => {
   return response.data;
 };
 
+// --- Validation Registration API ---
+export const getRegistrationValidationGroups = async () => {
+  const response = await apiClient.get('/cv/validation-registration/groups/');
+  return response.data;
+};
+
+export const getRegistrationMemberData = async (q = '') => {
+  const params = q ? { q } : {};
+  const response = await apiClient.get('/cv/validation-registration/members/', {
+    params,
+  });
+  return response.data;
+};
+
+export const addRegistrationMemberFaces = async (payload) => {
+  const response = await apiClient.post(
+    '/cv/validation-registration/actions/member/add-face/',
+    payload
+  );
+  return response.data;
+};
+
+export const rejectRegistrationFaces = async (payload) => {
+  const response = await apiClient.post(
+    '/cv/validation-registration/actions/reject/',
+    payload
+  );
+  return response.data;
+};
+
 export default apiClient;

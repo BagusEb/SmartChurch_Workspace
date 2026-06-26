@@ -9,6 +9,15 @@ from .views.viewscvAttendance import (
     detection_log,
     session_status,
     session_attendance_result,
+    start_registration,
+    stop_registration,
+)
+
+from .views.viewsValidationregistration import (
+    registration_validation_groups,
+    registration_member_data,
+    registration_assign_member_faces_action,
+    registration_reject_faces_action,
 )
 
 from .views.viewsValidationai import (
@@ -80,5 +89,38 @@ urlpatterns = [
         "cv/validation-ai/actions/member/add-face/",
         validation_ai_add_member_face_action,
         name="validation_ai_add_member_face_action",
+    ),
+
+    path(
+        "cv/registration/start/",
+        start_registration,
+        name="cv_registration_start",
+    ),
+    path(
+        "cv/registration/stop/",
+        stop_registration,
+        name="cv_registration_stop",
+    ),
+
+    # ================= VALIDATION REGISTRATION =================
+    path(
+        "cv/validation-registration/groups/",
+        registration_validation_groups,
+        name="registration_validation_groups",
+    ),
+    path(
+        "cv/validation-registration/members/",
+        registration_member_data,
+        name="registration_member_data",
+    ),
+    path(
+        "cv/validation-registration/actions/member/add-face/",
+        registration_assign_member_faces_action,
+        name="registration_assign_member_faces_action",
+    ),
+    path(
+        "cv/validation-registration/actions/reject/",
+        registration_reject_faces_action,
+        name="registration_reject_faces_action",
     ),
 ]

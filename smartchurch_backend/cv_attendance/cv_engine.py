@@ -102,18 +102,26 @@ class SessionManager:
 
     def _load_embeddings(self) -> list:
         from attendance.models import MemberFaceEmbedding
+
         rows = (
             MemberFaceEmbedding.objects
-            .filter(is_active=True, member__member_status="active")
+            .filter(
+                member__isnull=False,
+                is_active=True,
+                face_encoding__isnull=False,
+                member__member_status="active",
+            )
             .select_related("member")
         )
+
         return [
             {
-                "member_id":    fe.member.id,
-                "full_name":    fe.member.full_name,
+                "member_id": fe.member.id,
+                "full_name": fe.member.full_name,
                 "face_encoding": fe.face_encoding,
             }
             for fe in rows
+            if fe.member is not None and fe.face_encoding
         ]
 
     def _create_worship_session(self, session_name: str):

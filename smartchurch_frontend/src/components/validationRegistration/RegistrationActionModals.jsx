@@ -1,6 +1,6 @@
+//smartchurch_frontend\src\components\validationRegistration\RegistrationActionModals.jsx
 import {
   Check,
-  ImagePlus,
   Loader2,
   Save,
   Search,
@@ -12,10 +12,7 @@ import RegistrationModalShell, {
   RegistrationModalFooter,
 } from "./RegistrationModalShell";
 
-import {
-  formatTime,
-  getInitials,
-} from "./registrationHelpers";
+import { formatTime, getInitials } from "./registrationHelpers";
 
 const inputCls =
   "w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100";
@@ -40,8 +37,6 @@ export function RegistrationMemberModal({
   onConfirm,
   onPreviewImage,
 }) {
-  const row = modal.row;
-
   return (
     <RegistrationModalShell
       title="Tambahkan Wajah Registration ke Jemaat"
@@ -50,9 +45,9 @@ export function RegistrationMemberModal({
       onClose={onClose}
       maxWidth="max-w-5xl"
     >
-      <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
-        <RegistrationRowPreview
-          row={row}
+      <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
+        <RegistrationSelectedPreview
+          title="Selected Faces"
           selectedRecords={selectedRecords}
           compact
           onPreviewImage={onPreviewImage}
@@ -63,9 +58,10 @@ export function RegistrationMemberModal({
             <p className="text-sm font-extrabold text-amber-800">
               {selectedRecords?.length || 0} gambar akan dijadikan face embedding aktif
             </p>
+
             <p className="mt-1 text-xs leading-relaxed text-amber-700">
-              Semua gambar yang dipilih akan dihubungkan ke jemaat. Gambar lain
-              dalam group yang tidak dipilih akan dihapus dari staging registration.
+              Hanya gambar yang dipilih yang akan dihubungkan ke jemaat. Gambar
+              lain yang tidak dipilih tetap berada di staging registration.
             </p>
           </div>
 
@@ -137,32 +133,29 @@ export function RegistrationMemberModal({
 }
 
 export function RegistrationRejectModal({
-  modal,
   selectedRecords,
   isSubmitting = false,
   onClose,
   onConfirm,
   onPreviewImage,
 }) {
-  const row = modal.row;
-
   return (
     <RegistrationModalShell
       title="Tolak Data Registration"
-      subtitle="Semua wajah dalam group ini akan dihapus dari staging registration."
+      subtitle="Hanya wajah yang dipilih yang akan dihapus dari staging registration."
       icon={<XCircle size={18} />}
       onClose={onClose}
     >
       <div className="space-y-4">
-        <RegistrationRowPreview
-          row={row}
+        <RegistrationSelectedPreview
+          title="Faces to Delete"
           selectedRecords={selectedRecords}
           onPreviewImage={onPreviewImage}
         />
 
         <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4">
           <p className="text-sm font-extrabold text-rose-800">
-            Apakah kamu yakin ingin menghapus group registration ini?
+            Apakah kamu yakin ingin menghapus wajah registration terpilih?
           </p>
 
           <p className="mt-1 text-xs leading-relaxed text-rose-700">
@@ -171,8 +164,7 @@ export function RegistrationRejectModal({
           </p>
 
           <div className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs font-bold text-rose-700">
-            Total data yang diproses:{" "}
-            {row.embeddingIds?.length || row.records?.length || 0}
+            Total data yang diproses: {selectedRecords?.length || 0}
           </div>
         </div>
 
@@ -208,15 +200,17 @@ function ExistingMemberPicker({
     <div className="gv-enter space-y-4">
       <div>
         <label className={labelCls}>Cari Jemaat</label>
+
         <div className="relative">
           <Search
             size={15}
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
           />
+
           <input
             value={memberSearch}
             disabled={disabled}
-            onChange={(e) => setMemberSearch(e.target.value)}
+            onChange={(event) => setMemberSearch(event.target.value)}
             className={`${inputCls} pl-9`}
             placeholder="Ketik nama, panggilan, nomor telepon, atau email..."
           />
@@ -255,6 +249,7 @@ function ExistingMemberPicker({
                     <p className="truncate text-sm font-extrabold text-slate-800">
                       {member.full_name}
                     </p>
+
                     <p className="truncate text-xs text-slate-500">
                       {member.nickname || "-"} · {member.phone || "No phone"}
                       {member.email ? ` · ${member.email}` : ""}
@@ -288,13 +283,14 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
     <div className="gv-enter grid gap-3 sm:grid-cols-2">
       <div className="sm:col-span-2">
         <label className={labelCls}>Nama Lengkap *</label>
+
         <input
           value={memberForm.full_name}
           disabled={disabled}
-          onChange={(e) =>
+          onChange={(event) =>
             setMemberForm((prev) => ({
               ...prev,
-              full_name: e.target.value,
+              full_name: event.target.value,
             }))
           }
           className={inputCls}
@@ -304,13 +300,14 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
 
       <div>
         <label className={labelCls}>Nickname</label>
+
         <input
           value={memberForm.nickname}
           disabled={disabled}
-          onChange={(e) =>
+          onChange={(event) =>
             setMemberForm((prev) => ({
               ...prev,
-              nickname: e.target.value,
+              nickname: event.target.value,
             }))
           }
           className={inputCls}
@@ -320,13 +317,14 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
 
       <div>
         <label className={labelCls}>Gender</label>
+
         <select
           value={memberForm.gender}
           disabled={disabled}
-          onChange={(e) =>
+          onChange={(event) =>
             setMemberForm((prev) => ({
               ...prev,
-              gender: e.target.value,
+              gender: event.target.value,
             }))
           }
           className={inputCls}
@@ -338,14 +336,15 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
 
       <div>
         <label className={labelCls}>Birth Date</label>
+
         <input
           type="date"
           value={memberForm.birth_date}
           disabled={disabled}
-          onChange={(e) =>
+          onChange={(event) =>
             setMemberForm((prev) => ({
               ...prev,
-              birth_date: e.target.value,
+              birth_date: event.target.value,
             }))
           }
           className={inputCls}
@@ -354,13 +353,14 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
 
       <div>
         <label className={labelCls}>Phone</label>
+
         <input
           value={memberForm.phone}
           disabled={disabled}
-          onChange={(e) =>
+          onChange={(event) =>
             setMemberForm((prev) => ({
               ...prev,
-              phone: e.target.value,
+              phone: event.target.value,
             }))
           }
           className={inputCls}
@@ -370,13 +370,14 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
 
       <div className="sm:col-span-2">
         <label className={labelCls}>Email</label>
+
         <input
           value={memberForm.email}
           disabled={disabled}
-          onChange={(e) =>
+          onChange={(event) =>
             setMemberForm((prev) => ({
               ...prev,
-              email: e.target.value,
+              email: event.target.value,
             }))
           }
           className={inputCls}
@@ -386,13 +387,14 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
 
       <div className="sm:col-span-2">
         <label className={labelCls}>Address</label>
+
         <textarea
           value={memberForm.address}
           disabled={disabled}
-          onChange={(e) =>
+          onChange={(event) =>
             setMemberForm((prev) => ({
               ...prev,
-              address: e.target.value,
+              address: event.target.value,
             }))
           }
           className={`${inputCls} min-h-[78px] resize-none`}
@@ -403,14 +405,13 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
   );
 }
 
-function RegistrationRowPreview({
-  row,
+function RegistrationSelectedPreview({
+  title,
   selectedRecords,
   compact = false,
   onPreviewImage,
 }) {
-  const records =
-    selectedRecords && selectedRecords.length > 0 ? selectedRecords : row.records;
+  const records = selectedRecords || [];
 
   return (
     <div
@@ -420,8 +421,11 @@ function RegistrationRowPreview({
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-extrabold text-slate-800">{row.label}</p>
-          <p className="text-xs text-slate-500">Registration Group</p>
+          <p className="text-sm font-extrabold text-slate-800">
+            {title || "Selected Registration Faces"}
+          </p>
+
+          <p className="text-xs text-slate-500">Selected Mode</p>
         </div>
 
         <div className="rounded-xl bg-white px-3 py-1.5 text-xs font-extrabold text-slate-600">
@@ -429,37 +433,44 @@ function RegistrationRowPreview({
         </div>
       </div>
 
-      <div className="gv-scroll flex gap-3 overflow-x-auto pb-1">
-        {records.map((record) => {
-          const image = record.face_image || row.representativeImage;
+      {records.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs font-semibold text-slate-400">
+          Belum ada gambar yang dipilih.
+        </div>
+      ) : (
+        <div className="gv-scroll flex gap-3 overflow-x-auto pb-1">
+          {records.map((record) => {
+            const image = record.face_image;
 
-          return (
-            <button
-              key={record.id}
-              type="button"
-              onClick={() =>
-                onPreviewImage({
-                  src: image,
-                  title: `${row.label} · Embedding #${record.id}`,
-                  subtitle: formatTime(record.created_at),
-                })
-              }
-              className="w-28 shrink-0 text-left"
-            >
-              <div className="aspect-square overflow-hidden rounded-2xl bg-white">
-                <img
-                  src={image}
-                  alt={`Selected registration face ${record.id}`}
-                  className="h-full w-full object-contain transition-transform hover:scale-105"
-                />
-              </div>
-              <p className="mt-1 truncate text-center text-[11px] font-bold text-slate-500">
-                #{record.id}
-              </p>
-            </button>
-          );
-        })}
-      </div>
+            return (
+              <button
+                key={record.id}
+                type="button"
+                onClick={() =>
+                  onPreviewImage({
+                    src: image,
+                    title: `Registration Face #${record.id}`,
+                    subtitle: formatTime(record.created_at),
+                  })
+                }
+                className="w-28 shrink-0 text-left"
+              >
+                <div className="aspect-square overflow-hidden rounded-2xl bg-white">
+                  <img
+                    src={image}
+                    alt={`Selected registration face ${record.id}`}
+                    className="h-full w-full object-contain transition-transform hover:scale-105"
+                  />
+                </div>
+
+                <p className="mt-1 truncate text-center text-[11px] font-bold text-slate-500">
+                  #{record.id}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

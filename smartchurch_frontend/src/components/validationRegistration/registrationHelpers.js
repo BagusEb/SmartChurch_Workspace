@@ -1,3 +1,5 @@
+//smartchurch_frontend\src\components\validationRegistration\registrationHelpers.js
+
 export function formatDate(value) {
   if (!value) return "-";
 

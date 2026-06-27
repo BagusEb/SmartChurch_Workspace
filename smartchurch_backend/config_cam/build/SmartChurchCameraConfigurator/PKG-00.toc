@@ -1,0 +1,68 @@
+('C:\\Users\\Paulsen '
+ 'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\build\\SmartChurchCameraConfigurator\\SmartChurchCameraConfigurator.pkg',
+ {'BINARY': True,
+  'DATA': True,
+  'EXECUTABLE': True,
+  'EXTENSION': True,
+  'PYMODULE': True,
+  'PYSOURCE': True,
+  'PYZ': False,
+  'SPLASH': True,
+  'SYMLINK': False},
+ [('pyi-contents-directory _internal', '', 'OPTION'),
+  ('PYZ-00.pyz',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\build\\SmartChurchCameraConfigurator\\PYZ-00.pyz',
+   'PYZ'),
+  ('struct',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\build\\SmartChurchCameraConfigurator\\localpycs\\struct.pyc',
+   'PYMODULE'),
+  ('pyimod01_archive',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\build\\SmartChurchCameraConfigurator\\localpycs\\pyimod01_archive.pyc',
+   'PYMODULE'),
+  ('pyimod02_importers',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\build\\SmartChurchCameraConfigurator\\localpycs\\pyimod02_importers.pyc',
+   'PYMODULE'),
+  ('pyimod03_ctypes',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\build\\SmartChurchCameraConfigurator\\localpycs\\pyimod03_ctypes.pyc',
+   'PYMODULE'),
+  ('pyimod04_pywin32',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\build\\SmartChurchCameraConfigurator\\localpycs\\pyimod04_pywin32.pyc',
+   'PYMODULE'),
+  ('pyiboot01_bootstrap',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\venvcam\\Lib\\site-packages\\PyInstaller\\loader\\pyiboot01_bootstrap.py',
+   'PYSOURCE'),
+  ('pyi_rth_inspect',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\venvcam\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_inspect.py',
+   'PYSOURCE'),
+  ('pyi_rth__tkinter',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\venvcam\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth__tkinter.py',
+   'PYSOURCE'),
+  ('pyi_rth_pkgutil',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\venvcam\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_pkgutil.py',
+   'PYSOURCE'),
+  ('pyi_rth_multiprocessing',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\venvcam\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_multiprocessing.py',
+   'PYSOURCE'),
+  ('camera_configurator',
+   'C:\\Users\\Paulsen '
+   'Ebenhaezer\\Documents\\help-yoel\\project\\local-system\\smartchurch_backend\\config_cam\\camera_configurator.py',
+   'PYSOURCE')],
+ 'python311.dll',
+ True,
+ False,
+ False,
+ [],
+ None,
+ None,
+ None)

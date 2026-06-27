@@ -1,3 +1,4 @@
+#smartchurch_backend/cv_attendance/cv_engine_enroll.py
 """
 RegistrationSessionManager — mode awal untuk face enrollment.
 
@@ -27,13 +28,20 @@ import django.db
 import numpy as np
 from django.utils import timezone
 
-from .camera.webcam_stream import WebcamStream
+#from .camera.webcam_stream import WebcamStream
+from .camera.rtsp_stream import RTSPStream
 from .config import (
-    CAMERA_SOURCE,
+    RTSP_URL,
+    ENABLE_SOURCE_CROP,
+    SOURCE_DETECTION_CROP,
+    ENABLE_AI_RESIZE,
+    AI_FRAME_WIDTH,
+    AI_FRAME_HEIGHT,
     ENROLL_LOST_TIMEOUT,
     ENROLL_SAME_FACE_SIM,
     MIN_DETECTION_SCORE,
 )
+
 from .utils.image_utils import encode_image_to_bytes, draw_detection_label
 from .utils.logger import get_logger
 from .vision.face_detector import FaceDetector
@@ -47,7 +55,7 @@ class RegistrationSessionManager:
 
     def __init__(self):
         self.detector = FaceDetector()
-        self.camera = WebcamStream(camera_index=CAMERA_SOURCE)
+        self.camera = RTSPStream(rtsp_url=RTSP_URL)
 
         self.log_queue = queue.Queue()
         self.db_queue = queue.Queue()
@@ -68,6 +76,7 @@ class RegistrationSessionManager:
         }
 
         self._tracking_lock = threading.Lock()
+        self._last_frame_debug_log_at = 0
 
         # Track wajah yang sedang terlihat.
         # key -> {
@@ -107,7 +116,7 @@ class RegistrationSessionManager:
         }
 
         if not self.camera.open():
-            return False, "Gagal membuka kamera untuk registration. Periksa koneksi kamera."
+            return False, "Gagal membuka CCTV RTSP untuk registration. Periksa IP, username, password, channel 101, dan jaringan LAN."
 
         self.registration_name = registration_name
         self.started_at = timezone.now()
@@ -203,6 +212,87 @@ class RegistrationSessionManager:
                 except queue.Empty:
                     break
 
+    def _prepare_frame_for_ai(self, frame):
+        """
+        Pipeline baru:
+        1. Terima frame asli RTSP.
+        2. Crop area penting dari frame asli jika ENABLE_SOURCE_CROP=True.
+        3. Resize hasil crop jika ENABLE_AI_RESIZE=True.
+        4. Return frame final untuk InsightFace.
+
+        Catatan:
+        - SOURCE_DETECTION_CROP memakai koordinat frame asli RTSP.
+        - AI_FRAME_WIDTH/AI_FRAME_HEIGHT adalah ukuran final yang masuk ke model.
+        """
+
+        if frame is None or frame.size == 0:
+            return frame
+
+        original_h, original_w = frame.shape[:2]
+        working_frame = frame
+
+        # 1. Crop dari frame asli RTSP
+        if ENABLE_SOURCE_CROP:
+            x1, y1, x2, y2 = SOURCE_DETECTION_CROP
+
+            x1 = max(0, min(int(x1), original_w - 1))
+            y1 = max(0, min(int(y1), original_h - 1))
+            x2 = max(0, min(int(x2), original_w))
+            y2 = max(0, min(int(y2), original_h))
+
+            if x2 <= x1 or y2 <= y1:
+                logger.warning(
+                    "[RegistrationFramePipeline] SOURCE_DETECTION_CROP tidak valid. "
+                    f"crop={SOURCE_DETECTION_CROP}, original={original_w}x{original_h}. "
+                    "Frame asli dipakai tanpa crop."
+                )
+            else:
+                working_frame = frame[y1:y2, x1:x2]
+
+        crop_h, crop_w = working_frame.shape[:2]
+
+        # 2. Optional resize hasil crop
+        if ENABLE_AI_RESIZE:
+            target_w = int(AI_FRAME_WIDTH)
+            target_h = int(AI_FRAME_HEIGHT)
+
+            if target_w <= 0 or target_h <= 0:
+                logger.warning(
+                    "[RegistrationFramePipeline] AI_FRAME_WIDTH/AI_FRAME_HEIGHT tidak valid. "
+                    f"AI_FRAME_WIDTH={AI_FRAME_WIDTH}, AI_FRAME_HEIGHT={AI_FRAME_HEIGHT}. "
+                    "Resize dilewati."
+                )
+            else:
+                interpolation = (
+                    cv2.INTER_AREA
+                    if crop_w > target_w or crop_h > target_h
+                    else cv2.INTER_LINEAR
+                )
+
+                working_frame = cv2.resize(
+                    working_frame,
+                    (target_w, target_h),
+                    interpolation=interpolation,
+                )
+
+        final_h, final_w = working_frame.shape[:2]
+
+        # Log ukuran frame setiap 5 detik supaya mudah debug
+        now = time.time()
+
+        if now - self._last_frame_debug_log_at >= 5:
+            self._last_frame_debug_log_at = now
+            logger.info(
+                "[RegistrationFramePipeline] "
+                f"original={original_w}x{original_h} | "
+                f"after_crop={crop_w}x{crop_h} | "
+                f"final_ai={final_w}x{final_h} | "
+                f"source_crop={ENABLE_SOURCE_CROP} | "
+                f"ai_resize={ENABLE_AI_RESIZE}"
+            )
+
+        return working_frame
+
     def _cleanup_inactive_tracks(self, now):
         expired_keys = []
 
@@ -275,10 +365,11 @@ class RegistrationSessionManager:
                 time.sleep(0.01)
                 continue
 
-            annotated = frame.copy()
+            frame_ai = self._prepare_frame_for_ai(frame)
+            annotated = frame_ai.copy()
 
             try:
-                faces = self.detector.detect(frame)
+                faces = self.detector.detect(frame_ai)
 
                 for face in faces:
                     det_score = float(face.get("det_score") or 0)

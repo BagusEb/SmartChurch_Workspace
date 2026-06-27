@@ -16,7 +16,7 @@ import {
   findValidationAiGuestByAi,
   confirmValidationAiGuest,
   addValidationAiMemberFace,
-  getRegistrationValidationGroups,
+  getRegistrationValidationFaces
 } from "../service/apiClient";
 
 import { findMemberName } from "../components/validationAI/validationHelpers";
@@ -51,6 +51,10 @@ export default function GuestValidation() {
 
   // ─── Session & Row State ──────────────────────────────────────────
   const [activeSessionId, setActiveSessionId] = useState(null);
+
+  const [activeValidationMode, setActiveValidationMode] = useState("attendance");
+  const [hasManualModeChange, setHasManualModeChange] = useState(false);
+  
   const [expandedRows, setExpandedRows] = useState({});
   const [selectedFaces, setSelectedFaces] = useState({});
 
@@ -117,7 +121,10 @@ export default function GuestValidation() {
 
   const fetchRegistrationSummary = useCallback(async () => {
     try {
-      const data = await getRegistrationValidationGroups();
+      const data = await getRegistrationValidationFaces({
+        page: 1,
+        pageSize: 20,
+      });
 
       if (data?.success) {
         setRegistrationSummary(
@@ -178,6 +185,40 @@ export default function GuestValidation() {
   );
 
   const totalPending = attendancePending + registrationPending;
+
+  useEffect(() => {
+    if (isLoadingSessions || sessionError) return;
+
+    const hasAttendancePending = validationSessions.length > 0;
+    const hasRegistrationPending = registrationPending > 0;
+
+    if (!hasManualModeChange) {
+      if (hasAttendancePending) {
+        setActiveValidationMode("attendance");
+        return;
+      }
+
+      if (hasRegistrationPending) {
+        setActiveValidationMode("registration");
+        return;
+      }
+    }
+
+    if (
+      activeValidationMode === "registration" &&
+      !hasRegistrationPending &&
+      hasAttendancePending
+    ) {
+      setActiveValidationMode("attendance");
+    }
+  }, [
+    isLoadingSessions,
+    sessionError,
+    validationSessions.length,
+    registrationPending,
+    hasManualModeChange,
+    activeValidationMode,
+  ]);
 
   const activeSession = useMemo(() => {
     return validationSessions.find(
@@ -309,6 +350,15 @@ export default function GuestValidation() {
   };
 
   const closeSession = () => {
+    setActiveSessionId(null);
+    setExpandedRows({});
+    setSelectedFaces({});
+  };
+
+  const switchValidationMode = (mode) => {
+    setHasManualModeChange(true);
+    setActiveValidationMode(mode);
+
     setActiveSessionId(null);
     setExpandedRows({});
     setSelectedFaces({});
@@ -949,12 +999,29 @@ export default function GuestValidation() {
 
                 {!isLoadingSessions && totalPending > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
+                    <button
+                      type="button"
+                      onClick={() => switchValidationMode("attendance")}
+                      className={`rounded-full px-3 py-1 text-xs font-bold transition-all ${
+                        activeValidationMode === "attendance"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                      }`}
+                    >
                       Attendance: {attendancePending}
-                    </span>
-                    <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => switchValidationMode("registration")}
+                      className={`rounded-full px-3 py-1 text-xs font-bold transition-all ${
+                        activeValidationMode === "registration"
+                          ? "bg-amber-600 text-white shadow-sm"
+                          : "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                      }`}
+                    >
                       Registration: {registrationPending}
-                    </span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1012,8 +1079,8 @@ export default function GuestValidation() {
           </section>
         )}
 
-        {/* Registration fallback: tampil hanya kalau attendance validation kosong */}
-        {!isLoadingSessions && !sessionError && validationSessions.length === 0 && (
+        {/* Registration validation panel */}
+        {!isLoadingSessions && !sessionError && activeValidationMode === "registration" && (
           <RegistrationValidationPanel
             onAfterChange={() => {
               fetchRegistrationSummary();
@@ -1023,8 +1090,28 @@ export default function GuestValidation() {
           />
         )}
 
+        {!isLoadingSessions &&
+          !sessionError &&
+          activeValidationMode === "attendance" &&
+          validationSessions.length === 0 && (
+            <section className="gv-soft-grid flex min-h-[320px] flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600">
+                <CheckCircle size={32} />
+              </div>
+
+              <h3 className="text-xl font-extrabold text-slate-800">
+                Tidak Ada Pending Attendance
+              </h3>
+
+              <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+                Data attendance sudah bersih. Jika masih ada pending registration,
+                klik tombol Registration di card atas.
+              </p>
+            </section>
+          )}
+
         {/* Session list attendance validation */}
-        {!isLoadingSessions && !sessionError && validationSessions.length > 0 && (
+        {!isLoadingSessions && !sessionError && activeValidationMode === "attendance" && validationSessions.length > 0 && (
           <>
             <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               {validationSessions.map((item, index) => (

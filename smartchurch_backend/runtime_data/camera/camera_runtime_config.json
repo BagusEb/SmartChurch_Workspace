@@ -1,0 +1,23 @@
+{
+  "updated_at": "2026-06-26T22:37:44",
+  "updated_by": "SmartChurchCameraConfigurator",
+  "SOURCE_FRAME_WIDTH": 5120,
+  "SOURCE_FRAME_HEIGHT": 1440,
+  "ENABLE_SOURCE_CROP": true,
+  "SOURCE_DETECTION_CROP": [
+    2710,
+    36,
+    3479,
+    1341
+  ],
+  "CROP_WIDTH": 769,
+  "CROP_HEIGHT": 1305,
+  "ENABLE_AI_RESIZE": true,
+  "AI_FRAME_WIDTH": 541,
+  "AI_FRAME_HEIGHT": 918,
+  "INSIGHTFACE_DET_SIZE": [
+    544,
+    928
+  ],
+  "LOCK_AI_RESIZE_TO_CROP_RATIO": true
+}

@@ -1,4 +1,4 @@
-# cv_attandance/urls.py
+#smartchurch_backend\cv_attendance\urls.py
 
 from django.urls import path
 
@@ -14,7 +14,7 @@ from .views.viewscvAttendance import (
 )
 
 from .views.viewsValidationregistration import (
-    registration_validation_groups,
+    registration_validation_faces,
     registration_member_data,
     registration_assign_member_faces_action,
     registration_reject_faces_action,
@@ -33,6 +33,12 @@ from .views.viewsValidationaction import (
     validation_ai_confirm_guest_action,
     validation_ai_add_member_face_action,
 )
+
+from .views.viewsCameraConfig import (
+    open_camera_configurator,
+    camera_configurator_status,
+)
+
 app_name = "cv_attendance"
 
 urlpatterns = [
@@ -58,13 +64,11 @@ urlpatterns = [
         validation_ai_session_detail,
         name="validation_ai_session_detail",
     ),
-
     path(
         "cv/validation-ai/data-member-guest/",
         validation_ai_member_guest_data,
         name="validation_ai_member_guest_data",
     ),
-
     path(
         "cv/validation-ai/actions/verify/",
         validation_ai_verify_action,
@@ -91,6 +95,7 @@ urlpatterns = [
         name="validation_ai_add_member_face_action",
     ),
 
+    # ================= REGISTRATION SESSION =================
     path(
         "cv/registration/start/",
         start_registration,
@@ -103,11 +108,16 @@ urlpatterns = [
     ),
 
     # ================= VALIDATION REGISTRATION =================
+    # Endpoint baru: flat list + pagination.
     path(
-        "cv/validation-registration/groups/",
-        registration_validation_groups,
-        name="registration_validation_groups",
+        "cv/validation-registration/faces/",
+        registration_validation_faces,
+        name="registration_validation_faces",
     ),
+
+    # Endpoint lama tetap hidup untuk backward compatibility.
+    # Response-nya sekarang juga flat paginated, bukan grouping.
+
     path(
         "cv/validation-registration/members/",
         registration_member_data,
@@ -123,4 +133,7 @@ urlpatterns = [
         registration_reject_faces_action,
         name="registration_reject_faces_action",
     ),
+
+    path("cv/camera-config/open/", open_camera_configurator, name="open-camera-configurator"),
+    path("cv/camera-config/status/", camera_configurator_status, name="camera-configurator-status"),
 ]

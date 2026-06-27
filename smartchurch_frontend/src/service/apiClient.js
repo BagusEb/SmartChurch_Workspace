@@ -335,10 +335,25 @@ export const addValidationAiMemberFace = async (payload) => {
 };
 
 // --- Validation Registration API ---
-export const getRegistrationValidationGroups = async () => {
-  const response = await apiClient.get('/cv/validation-registration/groups/');
+export const getRegistrationValidationFaces = async ({
+  page = 1,
+  pageSize = 20,
+  includeEncoding = false,
+} = {}) => {
+  const response = await apiClient.get('/cv/validation-registration/faces/', {
+    params: {
+      page,
+      page_size: pageSize,
+      include_encoding: includeEncoding ? 'true' : 'false',
+    },
+  });
+
   return response.data;
 };
+
+// Backward compatibility.
+// Dipakai GuestValidation untuk ambil summary registration.
+
 
 export const getRegistrationMemberData = async (q = '') => {
   const params = q ? { q } : {};
@@ -363,5 +378,15 @@ export const rejectRegistrationFaces = async (payload) => {
   );
   return response.data;
 };
+
+export async function openCameraConfigurator() {
+  const response = await apiClient.post("/cv/camera-config/open/");
+  return response.data;
+}
+
+export async function getCameraConfiguratorStatus() {
+  const response = await apiClient.get("/cv/camera-config/status/");
+  return response.data;
+}
 
 export default apiClient;

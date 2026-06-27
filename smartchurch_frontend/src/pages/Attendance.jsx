@@ -6,6 +6,8 @@ import {
   getDetectionLogs,
   getSessionStatus,
   getSessionAttendanceResult,
+  openCameraConfigurator,
+  getCameraConfiguratorStatus,
 } from '../service/apiClient';
 
 import {
@@ -27,6 +29,7 @@ import {
   UserCheck,
   Wifi,
   Users,
+  Settings
 } from 'lucide-react';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -97,6 +100,17 @@ export default function Attendance() {
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
 
+  const [isOpeningCameraConfig, setIsOpeningCameraConfig] =
+    useState(false);
+
+  const [
+    isCameraConfiguratorRunning,
+    setIsCameraConfiguratorRunning,
+  ] = useState(false);
+
+  const [isBackendReloading, setIsBackendReloading] =
+    useState(false);
+
   const [inputName, setInputName] = useState('');
   const [inputError, setInputError] = useState('');
 
@@ -106,6 +120,8 @@ export default function Attendance() {
   const [info, setInfo] = useState(null);
 
   const pollingRef = useRef(null);
+
+  const cameraConfigPollingRef = useRef(null);
   const logsEndRef = useRef(null);
 
   const isRegistrationMode = currentMode === 'registration';
@@ -168,6 +184,7 @@ export default function Attendance() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [liveLogs]);
 
+
   const startPolling = useCallback(() => {
     if (pollingRef.current) clearInterval(pollingRef.current);
 
@@ -215,6 +232,104 @@ export default function Attendance() {
     }
   }, []);
 
+  const stopCameraConfiguratorPolling = useCallback(() => {
+    if (cameraConfigPollingRef.current) {
+      clearInterval(cameraConfigPollingRef.current);
+      cameraConfigPollingRef.current = null;
+    }
+  }, []);
+
+
+  const startCameraConfiguratorPolling = useCallback(
+    (expectedStartedAt) => {
+      stopCameraConfiguratorPolling();
+
+      const pollCameraConfigurator = async () => {
+        try {
+          const response =
+            await getCameraConfiguratorStatus();
+
+          const configState = response?.state;
+
+          setIsBackendReloading(false);
+
+          if (!configState) {
+            return;
+          }
+
+          // Pastikan status ini berasal dari proses yang baru dibuka,
+          // bukan proses configurator sebelumnya.
+          if (
+            expectedStartedAt &&
+            configState.last_started_at !== expectedStartedAt
+          ) {
+            return;
+          }
+
+          setIsCameraConfiguratorRunning(
+            Boolean(configState.is_running)
+          );
+
+          if (configState.is_running) {
+            setInfo(
+              'Camera Configurator sedang berjalan di komputer server. ' +
+                'Selesaikan pengaturan lalu tutup aplikasinya.'
+            );
+            return;
+          }
+
+          if (configState.last_finished_at) {
+            stopCameraConfiguratorPolling();
+
+            setIsCameraConfiguratorRunning(false);
+            setIsBackendReloading(false);
+
+            if (configState.reload_triggered) {
+              setInfo(
+                'Konfigurasi kamera berhasil disimpan dan backend ' +
+                  'sudah aktif kembali dengan konfigurasi baru.'
+              );
+            } else {
+              setInfo(
+                configState.message ||
+                  'Camera Configurator telah ditutup.'
+              );
+            }
+          }
+        } catch (pollError) {
+          /*
+           * Saat config.py disentuh, Django runserver berhenti
+           * sebentar dan memulai ulang. Pada periode itu request
+           * status dapat gagal. Ini kondisi yang diharapkan.
+           */
+          console.warn(
+            '[Attendance] Backend sedang reload:',
+            pollError
+          );
+
+          setIsBackendReloading(true);
+          setInfo(
+            'Konfigurasi selesai. Backend sedang memuat ulang...'
+          );
+        }
+      };
+
+      cameraConfigPollingRef.current = setInterval(
+        pollCameraConfigurator,
+        1000
+      );
+
+      void pollCameraConfigurator();
+    },
+    [stopCameraConfiguratorPolling]
+  );
+
+  useEffect(() => {
+    return () => {
+      stopCameraConfiguratorPolling();
+    };
+  }, [stopCameraConfiguratorPolling]);
+  
   useEffect(() => {
     (async () => {
       try {
@@ -384,6 +499,59 @@ export default function Attendance() {
     window.open('/camera', '_blank', 'noopener,noreferrer');
   };
 
+  const handleOpenCameraConfigurator = async () => {
+    if (isSessionActive) {
+      setError(
+        'Setting Camera hanya dapat dibuka ketika tidak ada sesi aktif.'
+      );
+      return;
+    }
+
+    setIsOpeningCameraConfig(true);
+    setError(null);
+    setInfo(null);
+
+    try {
+      const response = await openCameraConfigurator();
+
+      if (!response?.success) {
+        setError(
+          response?.message ||
+            'Gagal membuka Camera Configurator.'
+        );
+        return;
+      }
+
+      const startedAt =
+        response?.state?.last_started_at || null;
+
+      setIsCameraConfiguratorRunning(true);
+
+      setInfo(
+        'Camera Configurator berhasil dibuka di komputer server. ' +
+          'Atur posisi kamera lalu tutup aplikasi menggunakan tombol X.'
+      );
+
+      startCameraConfiguratorPolling(startedAt);
+    } catch (requestError) {
+      console.error(
+        '[Attendance] Open camera configurator error:',
+        requestError
+      );
+
+      const responseMessage =
+        requestError?.response?.data?.message;
+
+      setError(
+        responseMessage ||
+          'Gagal membuka Camera Configurator. ' +
+            'Pastikan backend dan file EXE tersedia.'
+      );
+    } finally {
+      setIsOpeningCameraConfig(false);
+    }
+  };
+
   // ═════════════════════════════════════════════════════════════
   //  RENDER
   // ═════════════════════════════════════════════════════════════
@@ -445,29 +613,76 @@ export default function Attendance() {
             </div>
           </div>
 
-          <div
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold flex-shrink-0 transition-all ${
-              isSessionActive
-                ? isRegistrationMode
-                  ? 'bg-amber-50 border-amber-200 text-amber-700'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                : 'bg-slate-100 border-slate-200 text-slate-500'
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!isSessionActive && (
+              <button
+                type="button"
+                onClick={handleOpenCameraConfigurator}
+                disabled={
+                  isOpeningCameraConfig ||
+                  isCameraConfiguratorRunning ||
+                  isBackendReloading
+                }
+                className="
+                  inline-flex items-center gap-2
+                  px-4 py-2 rounded-xl
+                  border border-indigo-200
+                  bg-indigo-50 text-indigo-700
+                  text-sm font-semibold
+                  hover:bg-indigo-100
+                  hover:border-indigo-300
+                  transition-all
+                  disabled:opacity-60
+                  disabled:cursor-not-allowed
+                "
+              >
+                {isOpeningCameraConfig ||
+                isCameraConfiguratorRunning ||
+                isBackendReloading ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Settings size={15} />
+                )}
+
+                {isOpeningCameraConfig
+                  ? 'Membuka...'
+                  : isCameraConfiguratorRunning
+                  ? 'Configurator Aktif'
+                  : isBackendReloading
+                  ? 'Backend Reload...'
+                  : 'Setting Camera Position'}
+              </button>
+            )}
+
+            <div
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold flex-shrink-0 transition-all ${
                 isSessionActive
                   ? isRegistrationMode
-                    ? 'bg-amber-500 rec-anim'
-                    : 'bg-emerald-500 rec-anim'
-                  : 'bg-slate-400'
+                    ? 'bg-amber-50 border-amber-200 text-amber-700'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  : 'bg-slate-100 border-slate-200 text-slate-500'
               }`}
-            />
-            {isSessionActive
-              ? isRegistrationMode
-                ? `REGISTRATION — ${currentSession?.name || 'Face Registration'}`
-                : `AKTIF — ${currentSession?.name || 'Sesi Berjalan'}`
-              : 'TIDAK ADA SESI AKTIF'}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isSessionActive
+                    ? isRegistrationMode
+                      ? 'bg-amber-500 rec-anim'
+                      : 'bg-emerald-500 rec-anim'
+                    : 'bg-slate-400'
+                }`}
+              />
+
+              {isSessionActive
+                ? isRegistrationMode
+                  ? `REGISTRATION — ${
+                      currentSession?.name || 'Face Registration'
+                    }`
+                  : `AKTIF — ${
+                      currentSession?.name || 'Sesi Berjalan'
+                    }`
+                : 'TIDAK ADA SESI AKTIF'}
+            </div>
           </div>
         </div>
 

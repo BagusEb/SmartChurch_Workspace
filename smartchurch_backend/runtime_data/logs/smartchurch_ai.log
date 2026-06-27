@@ -1,0 +1,50 @@
+[2026-06-26 22:29:01] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-06-26 22:29:07] INFO     cv_attendance.vision.face_detector: PyTorch CUDA check: torch=2.5.1+cu121, cuda=12.1, cuda_available=True, gpu=NVIDIA GeForce RTX 3050 6GB Laptop GPU
+[2026-06-26 22:29:07] INFO     cv_attendance.vision.face_detector: PyTorch CUDA warm-up berhasil.
+[2026-06-26 22:29:07] INFO     cv_attendance.vision.face_detector: ONNX Runtime preload_dlls tidak tersedia pada versi ini. Lanjut pakai PyTorch CUDA preload.
+[2026-06-26 22:29:07] INFO     cv_attendance.vision.face_detector: ONNX Runtime available providers: ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+[2026-06-26 22:29:07] INFO     cv_attendance.vision.face_detector: InsightFace requested providers: [('CUDAExecutionProvider', {'device_id': 0, 'arena_extend_strategy': 'kNextPowerOfTwo', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'do_copy_in_default_stream': True}), 'CPUExecutionProvider']
+[2026-06-26 22:29:08] INFO     cv_attendance.vision.face_detector: InsightFace real active providers: ['CUDAExecutionProvider', 'CPUExecutionProvider']
+[2026-06-26 22:29:08] INFO     cv_attendance.vision.face_detector: InsightFace model benar-benar aktif dengan GPU CUDA. GPU_DEVICE_ID=0, det_size=(960, 544)
+[2026-06-26 22:29:08] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 18 embedding dimuat
+[2026-06-26 22:29:08] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=17 | 'Ibadah Raya Sabat'
+[2026-06-26 22:29:09] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 4 attendance rows untuk session_id=17
+[2026-06-26 22:29:13] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-06-26 22:29:13] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-06-26 22:29:13] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=17 | 18 embedding dimuat.
+[2026-06-26 22:29:13] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:29:19] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:29:24] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:29:29] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:29:34] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:29:39] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:29:44] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:29:49] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:29:56] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:30:01] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:30:06] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:30:11] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=2384x1305 | final_ai=960x526 | source_crop=True | ai_resize=True
+[2026-06-26 22:30:14] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-06-26 22:30:14] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-06-26 22:30:14] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 17 ditutup
+[2026-06-26 22:30:14] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-06-26 22:38:04] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-06-26 22:38:26] INFO     cv_attendance.vision.face_detector: PyTorch CUDA check: torch=2.5.1+cu121, cuda=12.1, cuda_available=True, gpu=NVIDIA GeForce RTX 3050 6GB Laptop GPU
+[2026-06-26 22:38:27] INFO     cv_attendance.vision.face_detector: PyTorch CUDA warm-up berhasil.
+[2026-06-26 22:38:27] INFO     cv_attendance.vision.face_detector: ONNX Runtime preload_dlls tidak tersedia pada versi ini. Lanjut pakai PyTorch CUDA preload.
+[2026-06-26 22:38:27] INFO     cv_attendance.vision.face_detector: ONNX Runtime available providers: ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+[2026-06-26 22:38:27] INFO     cv_attendance.vision.face_detector: InsightFace requested providers: [('CUDAExecutionProvider', {'device_id': 0, 'arena_extend_strategy': 'kNextPowerOfTwo', 'cudnn_conv_algo_search': 'EXHAUSTIVE', 'do_copy_in_default_stream': True}), 'CPUExecutionProvider']
+[2026-06-26 22:38:31] INFO     cv_attendance.vision.face_detector: InsightFace real active providers: ['CPUExecutionProvider', 'CUDAExecutionProvider']
+[2026-06-26 22:38:31] INFO     cv_attendance.vision.face_detector: InsightFace model benar-benar aktif dengan GPU CUDA. GPU_DEVICE_ID=0, det_size=(544, 928)
+[2026-06-26 22:38:32] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 18 embedding dimuat
+[2026-06-26 22:38:32] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=18 | 'Ibadah Raya Sabat'
+[2026-06-26 22:38:32] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 4 attendance rows untuk session_id=18
+[2026-06-26 22:38:37] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-06-26 22:38:37] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-06-26 22:38:37] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=18 | 18 embedding dimuat.
+[2026-06-26 22:38:38] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=769x1305 | final_ai=541x918 | source_crop=True | ai_resize=True
+[2026-06-26 22:38:43] INFO     cv_attendance.cv_engine: [AttendanceFramePipeline] original=5120x1440 | after_crop=769x1305 | final_ai=541x918 | source_crop=True | ai_resize=True
+[2026-06-26 22:38:48] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-06-26 22:38:48] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-06-26 22:38:48] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 18 ditutup
+[2026-06-26 22:38:48] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.

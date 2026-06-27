@@ -1,3 +1,5 @@
+//smartchurch_frontend\src\components\validationRegistration\RegistrationModalShell.jsx
+
 import { X } from "lucide-react";
 
 export default function RegistrationModalShell({

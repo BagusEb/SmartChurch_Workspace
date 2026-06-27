@@ -230,3 +230,107 @@ LINE 1: INSERT INTO "t_attendance_session" ("session_name", "date", ...
 [2026-05-26 23:32:17] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 9 ditutup
 [2026-05-26 23:32:17] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
 [2026-05-26 23:32:24] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-27 13:46:38] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-27 13:46:46] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-27 13:46:46] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 12 embedding dimuat
+[2026-05-27 13:46:46] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=13 | 'Ibadah Raya Sabat'
+[2026-05-27 13:46:46] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 5 attendance rows untuk session_id=13
+[2026-05-27 13:46:48] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-27 13:46:48] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-27 13:46:48] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=13 | 12 embedding dimuat.
+[2026-05-27 13:46:57] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:05] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:13] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:17] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:20] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:22] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:24] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:26] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:28] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:35] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:37] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:40] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:42] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:44] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:46] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:47:48] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:48:41] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-27 13:48:45] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-27 13:48:45] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 12 embedding dimuat
+[2026-05-27 13:48:45] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=14 | 'Ibadah Anak-anak'
+[2026-05-27 13:48:45] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 5 attendance rows untuk session_id=14
+[2026-05-27 13:48:46] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-27 13:48:46] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-27 13:48:46] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Anak-anak' dimulai. session_id=14 | 12 embedding dimuat.
+[2026-05-27 13:48:49] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:48:51] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:48:52] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:48:55] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:48:57] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-27 13:49:01] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 14 ditutup
+[2026-05-27 13:49:01] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Anak-anak' dihentikan.
+[2026-05-27 13:49:02] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:49:02] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-27 13:54:10] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-27 13:54:18] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-27 13:54:18] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 12 embedding dimuat
+[2026-05-27 13:54:18] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=15 | 'Ibadah Raya Sabat'
+[2026-05-27 13:54:18] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 5 attendance rows untuk session_id=15
+[2026-05-27 13:54:19] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-27 13:54:19] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-27 13:54:19] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=15 | 12 embedding dimuat.
+[2026-05-27 13:54:21] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:54:22] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:54:24] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:54:26] ERROR    cv_attendance.cv_engine: [CameraThread] Error: shapes (512,) and (4,) not aligned: 512 (dim 0) != 4 (dim 0)
+[2026-05-27 13:55:38] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-27 13:55:43] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-27 13:55:43] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-27 13:55:43] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=16 | 'Ibadah Raya Sabat'
+[2026-05-27 13:55:43] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 5 attendance rows untuk session_id=16
+[2026-05-27 13:55:44] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-27 13:55:44] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-27 13:55:44] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=16 | 8 embedding dimuat.
+[2026-05-27 13:55:46] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=98 | session_id=16
+[2026-05-27 13:55:56] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-27 13:56:00] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 16 ditutup
+[2026-05-27 13:56:00] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-05-27 13:56:02] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-29 08:42:05] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-29 08:42:13] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-29 08:42:13] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-29 08:42:13] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=20 | 'Ibadah Raya Sabat'
+[2026-05-29 08:42:13] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 5 attendance rows untuk session_id=20
+[2026-05-29 08:42:14] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-29 08:42:14] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-29 08:42:14] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=20 | 8 embedding dimuat.
+[2026-05-29 08:42:27] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=159 | session_id=20
+[2026-05-29 08:44:00] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-29 08:44:03] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-29 08:44:03] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 20 ditutup
+[2026-05-29 08:44:03] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-05-29 12:07:29] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-05-29 12:07:37] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-05-29 12:07:37] INFO     cv_attendance.vision.face_matcher: FaceMatcher: 8 embedding dimuat
+[2026-05-29 12:07:37] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession dibuat: id=21 | 'Ibadah Raya Sabat'
+[2026-05-29 12:07:38] INFO     cv_attendance.cv_engine: [SessionManager] Pre-populated 5 attendance rows untuk session_id=21
+[2026-05-29 12:07:40] INFO     cv_attendance.cv_engine: [CameraThread] Dimulai.
+[2026-05-29 12:07:40] INFO     cv_attendance.cv_engine: [DBWriter] Dimulai.
+[2026-05-29 12:07:40] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dimulai. session_id=21 | 8 embedding dimuat.
+[2026-05-29 12:07:55] INFO     cv_attendance.cv_engine: [DBWriter] KNOWN check-in: member_id=1 | timeline_id=162 | session_id=21
+[2026-05-29 12:08:19] INFO     cv_attendance.cv_engine: [DBWriter] Selesai.
+[2026-05-29 12:08:21] INFO     cv_attendance.cv_engine: [CameraThread] Selesai.
+[2026-05-29 12:08:21] INFO     cv_attendance.cv_engine: [SessionManager] WorshipSession 21 ditutup
+[2026-05-29 12:08:22] INFO     cv_attendance.cv_engine: [SessionManager] Sesi 'Ibadah Raya Sabat' dihentikan.
+[2026-06-27 01:46:41] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-06-27 01:46:50] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-06-27 01:46:50] INFO     cv_attendance.vision.face_detector: Loading InsightFace model 'buffalo_l'...
+[2026-06-27 01:46:54] INFO     cv_attendance.vision.face_detector: InsightFace model siap
+[2026-06-27 01:46:57] INFO     cv_attendance.cv_engine_enroll: [RegistrationCameraThread] Dimulai.
+[2026-06-27 01:46:57] INFO     cv_attendance.cv_engine_enroll: [RegistrationDBWriter] Dimulai.
+[2026-06-27 01:46:57] INFO     cv_attendance.cv_engine_enroll: [RegistrationSessionManager] Registration dimulai: Registration - Ibadah Raya Sabat
+[2026-06-27 01:47:10] INFO     cv_attendance.cv_engine_enroll: [RegistrationDBWriter] Registration face saved: embedding_id=130
+[2026-06-27 01:47:19] INFO     cv_attendance.cv_engine_enroll: [RegistrationDBWriter] Registration face saved: embedding_id=131
+[2026-06-27 01:47:22] INFO     cv_attendance.cv_engine_enroll: [RegistrationDBWriter] Selesai.
+[2026-06-27 01:47:26] INFO     cv_attendance.cv_engine_enroll: [RegistrationSessionManager] Registration 'Registration - Ibadah Raya Sabat' dihentikan.
+[2026-06-27 01:47:28] INFO     cv_attendance.cv_engine_enroll: [RegistrationCameraThread] Selesai.

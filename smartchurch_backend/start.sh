@@ -2,8 +2,11 @@
 # Exit immediately if any command fails (except where we explicitly use || true)
 set -e
 
-# Apply any pending database migrations before the server starts.
+# Create and apply any pending database migrations before the server starts.
 # --noinput skips confirmation prompts.
+echo "Making migrations..."
+python manage.py makemigrations --noinput
+
 echo "Running migrations..."
 python manage.py migrate --noinput
 

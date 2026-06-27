@@ -57,6 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     libxcb1 \
     libgl1 \
+    dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 # Prevent Python from writing .pyc files and buffer stdout/stderr
@@ -73,7 +74,13 @@ COPY --from=builder /install /usr/local
 # Copy the entire backend source (respects .dockerignore to exclude .venv, .env, etc.)
 COPY . .
 
-RUN chmod +x /app/start.sh
+# Runtime camera config lives here. Bind-mount this directory so updates on the
+# host are visible inside the running container.
+RUN mkdir -p /app/cv_attendance/config \
+    && find /app -path /app/.venv -prune -o -name '*.sh' -exec dos2unix {} + \
+    && chmod +x /app/start.sh
+
+VOLUME ["/app/cv_attendance/config"]
 
 EXPOSE 8000
 

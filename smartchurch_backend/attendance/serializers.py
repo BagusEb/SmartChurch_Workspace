@@ -4,6 +4,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
+import base64
 from .models import (
     Member,
     Guest,
@@ -31,9 +32,28 @@ class GuestSerializer(serializers.ModelSerializer):
 
 
 class MemberFaceEmbeddingSerializer(serializers.ModelSerializer):
+    face_image_base64 = serializers.SerializerMethodField()
+
     class Meta:
         model = MemberFaceEmbedding
-        fields = "__all__"
+        fields = ['id', 'member', 'is_active', 'created_at', 'face_image_base64']
+
+    def get_face_image_base64(self, obj):
+        if obj.face_image:
+            return base64.b64encode(obj.face_image).decode('utf-8')
+        return None
+
+class MemberPhotoSerializer(serializers.ModelSerializer):
+    face_image_base64 = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MemberFaceEmbedding
+        fields = ['id', 'face_image_base64']
+
+    def get_face_image_base64(self, obj):
+        if obj.face_image:
+            return base64.b64encode(obj.face_image).decode('utf-8')
+        return None
 
 class WorshipSessionSerializer(serializers.ModelSerializer):
     class Meta:

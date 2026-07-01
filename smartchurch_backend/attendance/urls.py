@@ -1,7 +1,7 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 
-from .views.members_views import MemberViewSet, GuestViewSet, MemberFaceEmbeddingViewSet
+from .views.members_views import MemberViewSet, GuestViewSet, MemberFaceEmbeddingViewSet, MemberPhotosListView
 from .views.records_views import (
     TimelineDataRecordViewSet,
     AttendanceViewSet,
@@ -26,4 +26,5 @@ router.register(r"followup-members", FollowupMemberViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("members/<int:pk>/photos/", MemberPhotosListView.as_view(), name="member-photos-list"),
 ]

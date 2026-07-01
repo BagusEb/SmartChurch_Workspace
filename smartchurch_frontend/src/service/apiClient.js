@@ -138,6 +138,18 @@ export const getAllMembers = async () => {
   const response = await apiClient.get('/members/');
   return response.data; 
 };
+export const getMemberFaces = async (memberId, page = 1, pageSize = 10) => {
+  const response = await apiClient.get(`/members/${memberId}/faces/`, {
+    params: { page, page_size: pageSize },
+  });
+  return response.data;
+};
+export const getMemberPhotos = async (memberId, page = 1) => {
+  const response = await apiClient.get(`/members/${memberId}/photos/`, {
+    params: { page },
+  });
+  return response.data;
+};
 export const createMember = async (payload) => { const response = await apiClient.post('/members/', payload); return response.data; };
 export const updateMember = async (id, payload) => await apiClient.put(`/members/${id}/`, payload);
 export const deleteMember = async (id) => await apiClient.delete(`/members/${id}/`);

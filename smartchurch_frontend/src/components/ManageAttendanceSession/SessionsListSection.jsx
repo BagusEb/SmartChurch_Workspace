@@ -2,7 +2,7 @@
 //  SessionsListSection.jsx
 //  Left panel: searchable, filterable list of worship sessions.
 // ============================================================
-import { useState, useMemo } from 'react';
+import { createElement, useState, useMemo } from 'react';
 import {
   Search, Calendar, Users, UserCheck, UserX,
   ChevronRight, Inbox, Loader2
@@ -167,7 +167,7 @@ export default function SessionsListSection({ sessions, isLoading, onSessionClic
 function CountPill({ icon: Icon, color, bg, label }) {
   return (
     <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-lg ${bg} ${color}`}>
-      <Icon size={10} />
+      {createElement(Icon, { size: 10 })}
       {label}
     </span>
   );

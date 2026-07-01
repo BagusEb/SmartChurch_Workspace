@@ -711,19 +711,35 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                 pass
 
         sessions_qs = qs.annotate(
-            total=Count("attendances"),
-            member_count=Count("attendances", filter=Q(attendances__member__isnull=False)),
-            guest_count=Count("attendances", filter=Q(attendances__guest__isnull=False)),
+            member_count=Count("attendances__member", filter=Q(attendances__member__isnull=False), distinct=True),
+            guest_count=Count("attendances__guest", filter=Q(attendances__guest__isnull=False), distinct=True),
         ).order_by("-date", "-start_time")
+
+        attended_member_ids_by_session = defaultdict(set)
+        attended_guest_ids_by_session = defaultdict(set)
+        attendance_rows = (
+            Attendance.objects
+            .filter(session__in=sessions_qs)
+            .filter(Q(member__isnull=False) | Q(guest__isnull=False))
+            .values_list("session_id", "member_id", "guest_id")
+            .distinct()
+        )
+        for session_id, member_id, guest_id in attendance_rows:
+            if member_id is not None:
+                attended_member_ids_by_session[session_id].add(member_id)
+            if guest_id is not None:
+                attended_guest_ids_by_session[session_id].add(guest_id)
 
         data = []
         for session in sessions_qs:
             session_date = session.date
+            member_ids = sorted(attended_member_ids_by_session.get(session.id, set()))
+            guest_ids = sorted(attended_guest_ids_by_session.get(session.id, set()))
             eligible = Member.objects.filter(
                 member_status="active",
                 created_at__date__lte=session_date,
             ).count()
-            absent = max(0, eligible - session.member_count)
+            absent = max(0, eligible - len(member_ids))
             data.append({
                 "session_id": session.id,
                 "session_name": session.session_name,
@@ -731,9 +747,11 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                 "date": session_date,
                 "start_time": session.start_time, 
                 "end_time": session.end_time,
-                "total": session.total,
-                "member_count": session.member_count,
-                "guest_count": session.guest_count,
+                "total": len(member_ids) + len(guest_ids),
+                "member_count": len(member_ids),
+                "member_ids": member_ids,
+                "guest_count": len(guest_ids),
+                "guest_ids": guest_ids,
                 "absent_count": absent,
             })
         serializer = SessionSerializer(data, many=True)
@@ -757,25 +775,31 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
             .select_related("member", "guest")
         )
 
-        members = []
-        guests = []
+        members_by_id = {}
+        guests_by_id = {}
         attended_member_ids = set()
 
-        for a in attendances:
+        for a in attendances.order_by("check_in_time", "id"):
             if a.member:
-                members.append({
+                if a.member.id in members_by_id:
+                    continue
+                members_by_id[a.member.id] = {
                     "id": a.member.id,
                     "full_name": a.member.full_name,
                     "phone": a.member.phone,
-                })
+                    "check_in_time": a.check_in_time,
+                }
                 attended_member_ids.add(a.member.id)
             elif a.guest:
-                guests.append({
+                if a.guest.id in guests_by_id:
+                    continue
+                guests_by_id[a.guest.id] = {
                     "id": a.guest.id,
                     "full_name": a.guest.full_name,
                     "phone": a.guest.phone,
                     "visit_count": a.guest.visit_count,
-                })
+                    "check_in_time": a.check_in_time,
+                }
 
         # Calculate absent members
         eligible_members = Member.objects.filter(
@@ -792,7 +816,11 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                     "phone": m.phone,
                 })
 
-        return Response({"members": members, "guests": guests, "absent": absent_members})
+        return Response({
+            "members": list(members_by_id.values()),
+            "guests": list(guests_by_id.values()),
+            "absent": absent_members,
+        })
 
     @action(detail=False, methods=["post"], url_path="mark-member-present")
     def mark_member_present(self, request):

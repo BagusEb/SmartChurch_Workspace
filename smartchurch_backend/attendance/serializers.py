@@ -134,7 +134,9 @@ class SessionSerializer(serializers.Serializer):
     end_time = serializers.DateTimeField(required=False, allow_null=True)
     total = serializers.IntegerField()
     member_count = serializers.IntegerField()
+    member_ids = serializers.ListField(child=serializers.IntegerField(), required=False)
     guest_count = serializers.IntegerField()
+    guest_ids = serializers.ListField(child=serializers.IntegerField(), required=False)
     absent_count = serializers.IntegerField()
 
 
@@ -151,6 +153,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         else:
             # Fallback ke relasi profile jika ada, lalu default.
             token["role"] = getattr(getattr(user, "profile", None), "role", "admin")
+        token["username"] = user.username
+        token["first_name"] = user.first_name
+        token["last_name"] = user.last_name
         return token
 
 

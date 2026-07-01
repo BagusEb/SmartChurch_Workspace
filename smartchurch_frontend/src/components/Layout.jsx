@@ -5,8 +5,9 @@
 //  All routing logic is preserved; only the UI is enhanced.
 // ============================================================
 
-import { useState } from 'react';
+import { createElement, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { jwtDecode } from 'jwt-decode';
 import {
   LayoutDashboard,
   Users,
@@ -27,8 +28,8 @@ const NAV_ITEMS = [
   { to: '/',            label: 'Dashboard',        icon: LayoutDashboard },
   { to: '/members',     label: 'Data Jemaat',      icon: Users           },
   { to: '/attendance',  label: 'Kehadiran (CCTV)', icon: UserCheck       },
-  { to: '/manage-attendance', label: 'Kelola Absensi', icon: ClipboardList },
   { to: '/validation',  label: 'Validasi AI',      icon: UserSearch      },
+  { to: '/manage-attendance', label: 'Kelola Absensi', icon: ClipboardList },
   { to: '/report',      label: 'Laporan',          icon: FileText        },
   { to: '/manage-users',label: 'Kelola Pengguna',  icon: UserCog         },
   { to: '/chat',        label: 'AI Assistant',     icon: BotMessageSquare },
@@ -50,7 +51,7 @@ export default function Layout({ role }) {
 
   const { pathname } = useLocation();
   const navigate = useNavigate(); 
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen] = useState(true);
 
   const pageTitle = PAGE_TITLES[pathname] ?? 'SmartChurch';
 
@@ -69,11 +70,28 @@ export default function Layout({ role }) {
   });
 
   // --- UPDATE 3: Data Profil Dinamis ---
-  const profileData = {
-    name: role === 'leader' ? 'Church Leader' : 'Administrator',
-    subText: role === 'leader' ? 'Pastor' : 'Committee',
-    initial: role === 'leader' ? 'P' : 'A'
-  };
+  const profileData = useMemo(() => {
+    const token = localStorage.getItem('access_token');
+    let decoded = {};
+
+    if (token) {
+      try {
+        decoded = jwtDecode(token);
+      } catch {
+        decoded = {};
+      }
+    }
+
+    const fullName = [decoded.first_name, decoded.last_name].filter(Boolean).join(' ').trim();
+    const name = fullName || decoded.username || 'Administrator';
+    const initial = name.trim().charAt(0).toUpperCase() || 'A';
+
+    return {
+      name,
+      subText: 'Administrator',
+      initial,
+    };
+  }, []);
 
   // Fungsi Logout agar tombol LogOut berfungsi
   const handleLogout = () => {
@@ -127,7 +145,7 @@ export default function Layout({ role }) {
 
       <div className="flex bg-slate-100 h-screen overflow-hidden layout-root">
 
-        <aside className="relative flex flex-col w-64 shrink-0 sidebar-bg">
+        <aside className={`relative flex flex-col w-64 shrink-0 sidebar-bg ${sidebarOpen ? '' : 'hidden'}`}>
           <div
             aria-hidden
             style={{
@@ -175,7 +193,10 @@ export default function Layout({ role }) {
                       ? 'bg-white/20'
                       : 'bg-white/5'
                   }`}>
-                    <Icon size={16} className={isActive ? 'text-indigo-200' : 'text-indigo-300/70'} />
+                    {createElement(Icon, {
+                      size: 16,
+                      className: isActive ? 'text-indigo-200' : 'text-indigo-300/70',
+                    })}
                   </div>
                   <span className="flex-1">{label}</span>
                   {isActive && (

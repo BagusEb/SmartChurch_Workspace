@@ -1,7 +1,7 @@
 // ============================================================
 //  ManageAttendance.jsx  —  Parent / Page Component
 // ============================================================
-import { useState, useEffect } from 'react';
+import { createElement, useState, useEffect } from 'react';
 import { getSessions, getSessionAttendees, markMemberPresent } from '../service/apiClient';
 import { ClipboardList, Filter, Users, UserCheck, UserX, CalendarDays } from 'lucide-react';
 import SessionsListSection from '../components/ManageAttendanceSession/SessionsListSection';
@@ -9,6 +9,23 @@ import SessionDetailPanel  from '../components/ManageAttendanceSession/SessionDe
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS  = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
+const ATTENDEE_LIST_KEYS = ['members', 'guests', 'absent'];
+
+const uniqueById = (items = []) => {
+  const seen = new Set();
+  return items.filter((item, idx) => {
+    const key = item?.id ?? `idx-${idx}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const normalizeAttendees = (data = {}) =>
+  ATTENDEE_LIST_KEYS.reduce((acc, key) => {
+    acc[key] = uniqueById(data[key]);
+    return acc;
+  }, {});
 
 export default function ManageAttendance() {
   const [selectedYear,       setSelectedYear]       = useState(String(CURRENT_YEAR));
@@ -43,7 +60,7 @@ export default function ManageAttendance() {
     setIsLoadingAttendees(true);
     try {
       const data = await getSessionAttendees(session.session_id);
-      setSessionAttendees(data);
+      setSessionAttendees(normalizeAttendees(data));
     } catch {
       setSessionAttendees({ members: [], guests: [], absent: [] });
     } finally {
@@ -60,7 +77,7 @@ export default function ManageAttendance() {
         getSessionAttendees(selectedSession.session_id),
         getSessions(selectedYear),
       ]);
-      setSessionAttendees(attendeesData);
+      setSessionAttendees(normalizeAttendees(attendeesData));
       setSessions(sessionsData);
       const updated = sessionsData.find(s => s.session_id === selectedSession.session_id);
       if (updated) setSelectedSession(updated);
@@ -72,10 +89,14 @@ export default function ManageAttendance() {
 
   // ── Summary stats computed from sessions list ────────────
   const totalSessions = sessions.length;
-  const totalHadir    = sessions.reduce((s, x) => s + (x.member_count  ?? 0), 0);
-  const totalTamu     = sessions.reduce((s, x) => s + (x.guest_count   ?? 0), 0);
-  const totalAbsen    = sessions.reduce((s, x) => s + (x.absent_count  ?? 0), 0);
-
+  const sessionMemberIds = sessions.flatMap(x => x.member_ids ?? []);
+  const totalHadir    = sessionMemberIds.length > 0
+    ? new Set(sessionMemberIds).size
+    : sessions.reduce((s, x) => s + (x.member_count  ?? 0), 0);
+  const sessionGuestIds = sessions.flatMap(x => x.guest_ids ?? []);
+  const totalTamu     = sessionGuestIds.length > 0
+    ? new Set(sessionGuestIds).size
+    : sessions.reduce((s, x) => s + (x.guest_count   ?? 0), 0);
   return (
     <>
       <style>{`
@@ -121,7 +142,7 @@ export default function ManageAttendance() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 fade-in-up" style={{ animationDelay: '.05s' }}>
           <StatCard icon={CalendarDays} label="Total Sesi"  value={totalSessions} gradient="from-indigo-500 to-violet-600" shadow="shadow-indigo-200" sub="Tahun ini" />
           <StatCard icon={Users}        label="Total Hadir" value={totalHadir}    gradient="from-emerald-500 to-teal-600"  shadow="shadow-emerald-200" sub="Jemaat tetap" />
-          <StatCard icon={UserCheck}    label="Total Tamu"  value={totalTamu}     gradient="from-amber-500 to-orange-500"  shadow="shadow-amber-200"   sub="Tamu undangan" />
+          <StatCard icon={UserCheck}    label="Total Tamu"  value={totalTamu}     gradient="from-amber-500 to-orange-500"  shadow="shadow-amber-200"   sub="Tamu gereja" />
         </div>
 
         {/* ── SPLIT PANEL ─────────────────────────────── */}
@@ -159,7 +180,7 @@ function StatCard({ icon: Icon, label, value, gradient, shadow, sub }) {
           <p className="text-white/60 text-xs mt-1">{sub}</p>
         </div>
         <div className="bg-white/20 rounded-xl p-2 mt-0.5">
-          <Icon size={18} className="text-white" />
+          {createElement(Icon, { size: 18, className: 'text-white' })}
         </div>
       </div>
     </div>

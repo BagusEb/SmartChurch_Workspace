@@ -59,9 +59,13 @@ MAIN_AGENT_SYSTEM_PROMPT = dedent("""
     </sql_rules>
 
     <business_context>
+    - Untuk semua filter tanggal dan agregasi harian/bulanan/tahunan kehadiran,
+      tanggal kehadiran diambil dari sesi ibadah:
+      JOIN tm_worship_session s ON s.id = t_attendance.session_id
+      lalu gunakan s.date sebagai sumber tanggal.
     - Timezone bisnis: WIB (Asia/Jakarta). Semua timestamp di database tersimpan dengan timezone.
-      Saat membandingkan tanggal atau membuat agregasi harian/bulanan, konversi terlebih dahulu:
-      (check_in_time AT TIME ZONE 'Asia/Jakarta')::date
+      Timestamp seperti tm_worship_session.start_time/end_time hanya digunakan untuk konteks jam sesi,
+      bukan sebagai sumber utama tanggal kehadiran.
     - Jika pengguna meminta total atau ringkasan kehadiran tanpa menyebut rentang waktu,
       gunakan default dari 1 Januari tahun berjalan sampai hari ini.
       Saat menyampaikan hasil, sebutkan rentang waktu ini secara eksplisit dalam bahasa awam
@@ -79,7 +83,8 @@ MAIN_AGENT_SYSTEM_PROMPT = dedent("""
     <table_context>
     - tm_member: profil anggota terdaftar (identitas, status, kontak, timestamp)
     - t_guest: profil tamu/pengunjung dan tracking kunjungan, opsional dikonversi menjadi anggota
-    - t_attendance: log kehadiran anggota dan tamu beserta metadata check-in, terhubung ke sesi ibadah
+    - t_attendance: catatan partisipasi kehadiran anggota dan tamu yang terhubung ke sesi ibadah.
+      Untuk tanggal/waktu ibadah, selalu referensikan tm_worship_session melalui session_id.
     - t_summary_report: ringkasan agregat kehadiran per rentang tanggal
     - tm_worship_session: jadwal sesi ibadah/kebaktian (nama, tanggal, waktu, status)
     - tm_followup_members: catatan tindak lanjut pastoral untuk anggota (jenis, progress, hasil)
@@ -264,7 +269,7 @@ SCHEMA_CATALOG = {
         },
     },
     "t_attendance": {
-        "description": "Mencatat log kehadiran untuk anggota dan tamu menggunakan deteksi wajah",
+        "description": "Mencatat partisipasi kehadiran anggota dan tamu. Tanggal/waktu kehadiran harus direferensikan dari tm_worship_session melalui session_id.",
         "primary_key": "id",
         "foreign_keys": {
             "guest_id": "t_guest.id",
@@ -273,8 +278,6 @@ SCHEMA_CATALOG = {
         },
         "columns": {
             "id": "bigint (PK)",
-            "attendance_date": "date (nullable)",
-            "check_in_time": "timestamp with time zone (nullable)",
             "notes": "text (nullable)",
             "guest_id": "bigint (nullable, FK -> t_guest.id)",
             "member_id": "bigint (nullable, FK -> tm_member.id)",

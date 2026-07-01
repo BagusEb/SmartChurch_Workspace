@@ -3,7 +3,7 @@
 //  Right panel: tabbed detail view for a selected session.
 //  Tabs: Jemaat Hadir · Tamu · Absen (+ confirm-popup mark present)
 // ============================================================
-import { useState, useEffect } from 'react';
+import { createElement, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Users, UserCheck, UserX, CheckCircle2,
@@ -60,7 +60,7 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
   // ── Called after user confirms in popup ──────────────────
   const executeMark = async () => {
     if (!confirmMember) return;
-    const { id, name } = confirmMember;
+    const { id } = confirmMember;
     setConfirmMember(null);     // close popup immediately
     setMarkingId(id);
     try {
@@ -308,7 +308,7 @@ function ConfirmModal({ name, onConfirm, onCancel }) {
 function InfoChip({ icon: Icon, label }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium bg-white/15 px-3 py-1 rounded-full text-white/90">
-      <Icon size={12} className="text-white/70" />{label}
+      {createElement(Icon, { size: 12, className: 'text-white/70' })}{label}
     </span>
   );
 }

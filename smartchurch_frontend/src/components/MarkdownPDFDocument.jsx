@@ -83,6 +83,12 @@ function isImageOnlyParagraph(node) {
     : false;
 }
 
+function hasImageNode(node) {
+  if (!node) return false;
+  if (node.type === 'element' && node.tagName === 'img') return true;
+  return node.children?.some((child) => hasImageNode(child)) ?? false;
+}
+
 function extractTextFromNode(node) {
   if (!node) return '';
   if (node.type === 'text') return node.value || '';
@@ -136,7 +142,7 @@ const components = {
   h5: ({ children }) => <Text style={styles.h5}>{children}</Text>,
   h6: ({ children }) => <Text style={styles.h5}>{children}</Text>,
   p: ({ children, node }) => (
-    isImageOnlyParagraph(node)
+    isImageOnlyParagraph(node) || hasImageNode(node)
       ? <View style={styles.imageBlock}>{children}</View>
       : <Text style={styles.paragraph}>{children}</Text>
   ),
@@ -160,7 +166,7 @@ const components = {
   ol: ({ children }) => <View style={styles.list}>{children}</View>,
   li: ({ children, node }) => {
     const text = extractTextFromNode(node);
-    if (text) {
+    if (text && !hasImageNode(node)) {
       return (
         <Text style={styles.listItemText}>
           <Text style={styles.bullet}>• </Text>

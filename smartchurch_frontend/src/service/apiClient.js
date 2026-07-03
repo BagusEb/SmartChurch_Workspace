@@ -188,6 +188,29 @@ export const generateReport = async (start_date, end_date) => {
   return response.data;
 };
 
+export const downloadAttendanceRecap = async (start_date, end_date) => {
+  const response = await apiClient.get('/reports/attendance-recap/', {
+    params: { start_date, end_date },
+    responseType: 'blob',
+    headers: { Accept: '*/*' },
+  });
+
+  const contentType = response.headers?.['content-type'] || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const disposition = response.headers?.['content-disposition'];
+  const filename = getFilenameFromDisposition(disposition) || `rekap_absen_${start_date}_${end_date}.xlsx`;
+  const blob = new Blob([response.data], { type: contentType });
+  const objectUrl = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  URL.revokeObjectURL(objectUrl);
+};
+
 // Recommendations & Sessions
 export const generateFollowUpRecommendations = async (date = null) => {
   const payload = date ? { date } : {};

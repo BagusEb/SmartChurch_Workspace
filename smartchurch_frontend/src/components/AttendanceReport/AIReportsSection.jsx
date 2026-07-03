@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Bot, Plus, Calendar, Eye, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bot, Plus, Calendar, Eye, Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 
 const AI_PAGE_SIZE = 5;
 
-export default function AIReportsSection({ savedReports, isLoadingReports, openReport, onCreateClick, formatDate }) {
+export default function AIReportsSection({ savedReports, isLoadingReports, openReport, onCreateClick, onRecapClick, formatDate }) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(savedReports.length / AI_PAGE_SIZE));
   const paged = savedReports.slice((page - 1) * AI_PAGE_SIZE, page * AI_PAGE_SIZE);
@@ -20,13 +20,22 @@ export default function AIReportsSection({ savedReports, isLoadingReports, openR
             <p className="text-slate-400 text-xs">Analisis kehadiran per periode yang dibuat oleh AI</p>
           </div>
         </div>
-        <button
-          onClick={onCreateClick}
-          className="flex justify-center items-center gap-2 bg-linear-to-br from-indigo-500 to-purple-500 hover:shadow-indigo-200 hover:shadow-lg px-4 py-2 rounded-xl w-full sm:w-auto font-semibold text-white text-sm transition-all hover:-translate-y-px"
-        >
-          <Plus size={14} />
-          Buat Laporan
-        </button>
+        <div className="flex sm:flex-row flex-col gap-2 w-full sm:w-auto">
+          <button
+            onClick={onRecapClick}
+            className="flex justify-center items-center gap-2 bg-white hover:bg-indigo-50 px-4 py-2 border border-indigo-200 rounded-xl w-full sm:w-auto font-semibold text-indigo-600 text-sm transition-all hover:-translate-y-px"
+          >
+            <Download size={14} />
+            Rekap Absen
+          </button>
+          <button
+            onClick={onCreateClick}
+            className="flex justify-center items-center gap-2 bg-linear-to-br from-indigo-500 to-purple-500 hover:shadow-indigo-200 hover:shadow-lg px-4 py-2 rounded-xl w-full sm:w-auto font-semibold text-white text-sm transition-all hover:-translate-y-px"
+          >
+            <Plus size={14} />
+            Buat Laporan
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">

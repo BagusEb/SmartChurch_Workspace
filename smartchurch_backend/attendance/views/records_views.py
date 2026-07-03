@@ -1,8 +1,13 @@
 import json
+import re
+import zipfile
+from io import BytesIO
 from collections import defaultdict
 from datetime import date, datetime
+from xml.sax.saxutils import escape, quoteattr
 
 from dateutil.relativedelta import relativedelta
+from django.http import HttpResponse
 from django.db import transaction
 from rest_framework import viewsets, status
 from django.db.models import Avg, Count, Q
@@ -36,6 +41,189 @@ from ..serializers import (
 )
 from chatbot_ai.tools import generate_seaborn_plot
 from prompts import build_summary_report_prompt
+
+INVALID_EXCEL_SHEET_CHARS = r"[\[\]\:\*\?\/\\]"
+
+
+def sanitize_sheet_title(title, existing_titles):
+    clean_title = re.sub(INVALID_EXCEL_SHEET_CHARS, " ", title).strip() or "Sheet"
+    clean_title = re.sub(r"\s+", " ", clean_title)
+    base_title = clean_title[:31]
+    candidate = base_title
+    index = 2
+
+    while candidate in existing_titles:
+        suffix = f" ({index})"
+        candidate = f"{base_title[:31 - len(suffix)]}{suffix}"
+        index += 1
+
+    existing_titles.add(candidate)
+    return candidate
+
+
+def format_check_in_time(value):
+    if not value:
+        return ""
+    return timezone.localtime(value).strftime("%H:%M")
+
+
+def xlsx_column_name(index):
+    name = ""
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def xlsx_cell_xml(row_index, column_index, value):
+    style_id = None
+    if isinstance(value, tuple):
+        value, style_id = value
+
+    cell_ref = f"{xlsx_column_name(column_index)}{row_index}"
+    style_attr = f' s="{style_id}"' if style_id is not None else ""
+    if isinstance(value, (int, float)):
+        return f'<c r="{cell_ref}"{style_attr}><v>{value}</v></c>'
+    if isinstance(value, (date, datetime)):
+        value = value.isoformat()
+    text = escape("" if value is None else str(value))
+    return f'<c r="{cell_ref}" t="inlineStr"{style_attr}><is><t>{text}</t></is></c>'
+
+
+def xlsx_sheet_xml(rows):
+    max_columns = max((len(row) for row in rows), default=1)
+    cols_xml = "".join(
+        f'<col min="{index}" max="{index}" width="22" customWidth="1"/>'
+        for index in range(1, max_columns + 1)
+    )
+    row_xml = []
+    for row_index, row in enumerate(rows, start=1):
+        cells = "".join(
+            xlsx_cell_xml(row_index, column_index, value)
+            for column_index, value in enumerate(row, start=1)
+        )
+        row_xml.append(f'<row r="{row_index}">{cells}</row>')
+
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f"<cols>{cols_xml}</cols>"
+        f'<sheetData>{"".join(row_xml)}</sheetData>'
+        '</worksheet>'
+    )
+
+
+def xlsx_styles_xml():
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="3">'
+        '<font><sz val="11"/><color rgb="FF334155"/><name val="Calibri"/></font>'
+        '<font><b/><sz val="16"/><color rgb="FF0F172A"/><name val="Calibri"/></font>'
+        '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'
+        '</fonts>'
+        '<fills count="5">'
+        '<fill><patternFill patternType="none"/></fill>'
+        '<fill><patternFill patternType="gray125"/></fill>'
+        '<fill><patternFill patternType="solid"><fgColor rgb="FF7C3AED"/><bgColor indexed="64"/></patternFill></fill>'
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFF5F3FF"/><bgColor indexed="64"/></patternFill></fill>'
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/><bgColor indexed="64"/></patternFill></fill>'
+        '</fills>'
+        '<borders count="2">'
+        '<border><left/><right/><top/><bottom/><diagonal/></border>'
+        '<border><left style="thin"><color rgb="FFE2E8F0"/></left>'
+        '<right style="thin"><color rgb="FFE2E8F0"/></right>'
+        '<top style="thin"><color rgb="FFE2E8F0"/></top>'
+        '<bottom style="thin"><color rgb="FFE2E8F0"/></bottom><diagonal/></border>'
+        '</borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="5">'
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+        '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+        '<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>'
+        '<xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
+        '<xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
+        '</cellXfs>'
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        '</styleSheet>'
+    )
+
+
+def styled_row(values, style_id):
+    return [(value, style_id) for value in values]
+
+
+def zebra_row(values, index):
+    return styled_row(values, 3 if index % 2 else 4)
+
+
+def build_xlsx_response_bytes(sheets):
+    output = BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        sheet_overrides = "".join(
+            f'<Override PartName="/xl/worksheets/sheet{index}.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            for index in range(1, len(sheets) + 1)
+        )
+        archive.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/styles.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            f"{sheet_overrides}"
+            "</Types>",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/>'
+            "</Relationships>",
+        )
+        workbook_sheets = "".join(
+            f'<sheet name={quoteattr(title)} sheetId="{index}" r:id="rId{index}"/>'
+            for index, (title, _rows) in enumerate(sheets, start=1)
+        )
+        archive.writestr(
+            "xl/workbook.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f"<sheets>{workbook_sheets}</sheets>"
+            "</workbook>",
+        )
+        workbook_rels = "".join(
+            f'<Relationship Id="rId{index}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            f'Target="worksheets/sheet{index}.xml"/>'
+            for index in range(1, len(sheets) + 1)
+        )
+        workbook_rels += (
+            f'<Relationship Id="rId{len(sheets) + 1}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+            'Target="styles.xml"/>'
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f"{workbook_rels}"
+            "</Relationships>",
+        )
+        archive.writestr("xl/styles.xml", xlsx_styles_xml())
+        for index, (_title, rows) in enumerate(sheets, start=1):
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", xlsx_sheet_xml(rows))
+
+    output.seek(0)
+    return output.getvalue()
 
 def get_year_range(year_param):
     try:
@@ -633,6 +821,130 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                 "report_summary": report,
             }
         )
+
+    @action(detail=False, methods=["get"], url_path="attendance-recap")
+    def attendance_recap(self, request):
+        start_date_value = request.query_params.get("start_date")
+        end_date_value = request.query_params.get("end_date")
+        if not start_date_value or not end_date_value:
+            return Response(
+                {"error": "start_date and end_date are required"}, status=400
+            )
+
+        try:
+            start_date = datetime.strptime(start_date_value, "%Y-%m-%d").date()
+            end_date = datetime.strptime(end_date_value, "%Y-%m-%d").date()
+        except ValueError:
+            return Response(
+                {"error": "Invalid date format. Please use YYYY-MM-DD."},
+                status=400,
+            )
+
+        if start_date > end_date:
+            return Response({"error": "start_date must be before or equal to end_date"}, status=400)
+
+        sessions = list(
+            WorshipSession.objects
+            .filter(date__gte=start_date, date__lte=end_date)
+            .order_by("date", "start_time", "id")
+        )
+        session_ids = [session.id for session in sessions]
+
+        attendances_by_session = defaultdict(list)
+        attendance_rows = (
+            Attendance.objects
+            .filter(session_id__in=session_ids)
+            .filter(Q(member__isnull=False) | Q(guest__isnull=False))
+            .select_related("member", "guest", "session")
+            .order_by("check_in_time", "id")
+        )
+        for attendance in attendance_rows:
+            attendances_by_session[attendance.session_id].append(attendance)
+
+        summary_rows = [
+            [(f"Attendance summary {start_date_value} - {end_date_value}", 1)],
+            [],
+            styled_row([
+            "Date",
+            "Session Name",
+            "Member Present",
+            "Guest Present",
+            "Total Present",
+            "Eligible Active Members",
+            "Member attendance Percentage",
+            ], 2),
+        ]
+
+        used_sheet_titles = {"Summary"}
+        sheets = []
+
+        for session in sessions:
+            earliest_by_key = {}
+            for attendance in attendances_by_session.get(session.id, []):
+                if attendance.member_id:
+                    key = ("member", attendance.member_id)
+                    name = attendance.member.full_name
+                    attendee_type = "member"
+                elif attendance.guest_id:
+                    key = ("guest", attendance.guest_id)
+                    name = attendance.guest.full_name
+                    attendee_type = "guest"
+                else:
+                    continue
+
+                if key not in earliest_by_key:
+                    earliest_by_key[key] = {
+                        "name": name,
+                        "check_in_time": attendance.check_in_time,
+                        "type": attendee_type,
+                    }
+
+            attendees = sorted(
+                earliest_by_key.values(),
+                key=lambda item: (0 if item["type"] == "member" else 1, item["name"].lower()),
+            )
+            member_present = sum(1 for item in attendees if item["type"] == "member")
+            guest_present = sum(1 for item in attendees if item["type"] == "guest")
+            eligible_members = Member.objects.filter(
+                member_status="active",
+                created_at__date__lte=session.date,
+            ).count()
+            percentage = round((member_present / eligible_members) * 100, 2) if eligible_members else 0
+
+            summary_rows.append(zebra_row([
+                session.date,
+                session.session_name,
+                member_present,
+                guest_present,
+                member_present + guest_present,
+                eligible_members,
+                percentage,
+            ], len(summary_rows) - 2))
+
+            sheet_title = sanitize_sheet_title(
+                f"Worship {session.date} - {session.session_name}",
+                used_sheet_titles,
+            )
+            sheet_rows = [styled_row(["No.", "Name", "check_in_time", "type"], 2)]
+            for index, attendee in enumerate(attendees, start=1):
+                sheet_rows.append(zebra_row([
+                    index,
+                    attendee["name"],
+                    format_check_in_time(attendee["check_in_time"]),
+                    attendee["type"],
+                ], index))
+            sheets.append((sheet_title, sheet_rows))
+
+        sheets.insert(0, ("Summary", summary_rows))
+        xlsx_bytes = build_xlsx_response_bytes(sheets)
+
+        filename = f"rekap_absen_{start_date_value}_{end_date_value}.xlsx"
+        response = HttpResponse(
+            xlsx_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
     
     @action(detail=False, methods=["post"], url_path="generate-followup-recommendations")
     def generate_followup_recommendations(self, request):

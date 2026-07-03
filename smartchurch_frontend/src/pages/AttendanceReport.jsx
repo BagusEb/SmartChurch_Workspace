@@ -7,12 +7,14 @@ import {
   getFollowUpRecommendations,
   generateFollowUpRecommendations,
   getGuestConversionRecommendations,
+  downloadAttendanceRecap,
 } from '../service/apiClient';
 
-import { FileText, Download, Filter, Users, TrendingUp, CheckCircle } from 'lucide-react';
+import { FileText, Filter, Users, TrendingUp, CheckCircle } from 'lucide-react';
 import StatCard from '../components/AttendanceReport/StatCard';
 import AIReportsSection from '../components/AttendanceReport/AIReportsSection';
-import GenerateModal from '../components/AttendanceReport/GenerateModal';
+import AIReportDateRangeModal from '../components/AttendanceReport/AIReportDateRangeModal';
+import AttendanceRecapModal from '../components/AttendanceReport/AttendanceRecapModal';
 import ViewReportModal from '../components/AttendanceReport/ViewReportModal';
 import RecommendationsSection from '../components/AttendanceReport/RecommendationsSection';
 import RecommendationDetailModal from '../components/AttendanceReport/RecommendationDetailModal';
@@ -41,6 +43,11 @@ export default function AttendanceReport() {
   const [generateEndDate, setGenerateEndDate] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState('');
+  const [showRecapModal, setShowRecapModal] = useState(false);
+  const [recapStartDate, setRecapStartDate] = useState('');
+  const [recapEndDate, setRecapEndDate] = useState('');
+  const [isDownloadingRecap, setIsDownloadingRecap] = useState(false);
+  const [recapError, setRecapError] = useState('');
 
   // Recommendations
   const [followUps, setFollowUps] = useState([]);
@@ -162,10 +169,30 @@ export default function AttendanceReport() {
       setShowGenerateModal(false);
       setGenerateStartDate('');
       setGenerateEndDate('');
-    } catch (e) {
+    } catch {
       setGenerateError('Gagal membuat laporan. Coba lagi.');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleDownloadRecap = async () => {
+    if (!recapStartDate || !recapEndDate || isDownloadingRecap) return;
+    try {
+      setIsDownloadingRecap(true);
+      setRecapError('');
+      await downloadAttendanceRecap(recapStartDate, recapEndDate);
+      setShowRecapModal(false);
+      setRecapStartDate('');
+      setRecapEndDate('');
+    } catch (error) {
+      const backendMessage =
+        error?.response?.data?.error ||
+        error?.response?.data?.detail ||
+        'Gagal download rekap absen. Coba lagi.';
+      setRecapError(backendMessage);
+    } finally {
+      setIsDownloadingRecap(false);
     }
   };
 
@@ -255,12 +282,13 @@ export default function AttendanceReport() {
           isLoadingReports={isLoadingReports}
           openReport={openReport}
           onCreateClick={() => { setShowGenerateModal(true); setGenerateError(''); }}
+          onRecapClick={() => { setShowRecapModal(true); setRecapError(''); }}
           formatDate={formatDate}
         />
 
       </div>
 
-      <GenerateModal
+      <AIReportDateRangeModal
         show={showGenerateModal}
         startDate={generateStartDate}
         endDate={generateEndDate}
@@ -270,6 +298,18 @@ export default function AttendanceReport() {
         onGenerate={handleGenerate}
         setStartDate={setGenerateStartDate}
         setEndDate={setGenerateEndDate}
+      />
+
+      <AttendanceRecapModal
+        show={showRecapModal}
+        startDate={recapStartDate}
+        endDate={recapEndDate}
+        isDownloading={isDownloadingRecap}
+        error={recapError}
+        onClose={() => setShowRecapModal(false)}
+        onDownload={handleDownloadRecap}
+        setStartDate={setRecapStartDate}
+        setEndDate={setRecapEndDate}
       />
 
       <ViewReportModal

@@ -1,17 +1,12 @@
+#smartchurch_backend/cv_attendance/views/viewscvAttendance.py
 import json
-import time
-
-from django.http import (
-    StreamingHttpResponse,
-    JsonResponse,
-    HttpResponse,
-)
+from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from ..monitor_window import CameraMonitorWindow
 from ..cv_engine import SessionManager
 from ..cv_engine_enroll import RegistrationSessionManager
-from ..video_camera import VideoCamera
 
 
 def _get_attendance_manager():
@@ -21,59 +16,224 @@ def _get_attendance_manager():
 def _get_registration_manager():
     return RegistrationSessionManager.get_instance()
 
+def _parse_json_body(request):
+    try:
+        return json.loads(request.body or b"{}"), None
+    except json.JSONDecodeError:
+        return None, "Body tidak valid, harus JSON."
 
-def _get_active_video_manager():
+
+def _build_running_attendance_response(attendance_manager):
+    return {
+        "success": False,
+        "mode": "attendance",
+        "message": "Sesi attendance sudah berjalan.",
+        "session_id": attendance_manager.current_session_id,
+        "session_name": attendance_manager.current_session_name,
+    }
+
+
+def _build_running_registration_response(registration_manager):
+    return {
+        "success": True,
+        "mode": "registration",
+        "registration_required": True,
+        "message": "Sesi registration sudah berjalan.",
+        "session_id": None,
+        "session_name": registration_manager.registration_name,
+        "registration_name": registration_manager.registration_name,
+    }
+
+def _get_active_monitor_source():
     attendance_manager = _get_attendance_manager()
     registration_manager = _get_registration_manager()
 
     if attendance_manager.is_running:
-        return attendance_manager
+        return {
+            "manager": attendance_manager,
+            "mode": "attendance",
+            "session_name": (
+                attendance_manager.current_session_name
+            ),
+        }
 
     if registration_manager.is_running:
-        return registration_manager
+        return {
+            "manager": registration_manager,
+            "mode": "registration",
+            "session_name": (
+                registration_manager.registration_name
+            ),
+        }
 
     return None
 
 
-# ── MJPEG Generator ──────────────────────────────────────────────
-def _gen_mjpeg_frames(session):
-    """Generator MJPEG — berhenti otomatis saat manager tidak aktif."""
-    camera = VideoCamera(session)
-
-    while session.is_running:
-        frame = camera.get_frame()
-
-        if frame:
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n"
-                + frame
-                + b"\r\n"
-            )
-        else:
-            time.sleep(0.03)
-
 
 # ── VIEWS ────────────────────────────────────────────────────────
+@csrf_exempt
+@require_http_methods(["POST"])
+def start_attendance_session(request):
+    """
+    POST /api/cv/attendance/start/
+
+    Start attendance saja.
+    Tidak otomatis fallback ke registration.
+
+    Dipakai untuk tombol:
+    - Mulai Sesi Absensi
+    """
+
+    body, body_error = _parse_json_body(request)
+
+    if body_error:
+        return JsonResponse(
+            {
+                "success": False,
+                "message": body_error,
+            },
+            status=400,
+        )
+
+    session_name = body.get("session_name", "").strip()
+
+    if not session_name:
+        return JsonResponse(
+            {
+                "success": False,
+                "message": "Nama sesi absensi tidak boleh kosong.",
+            },
+            status=400,
+        )
+
+    attendance_manager = _get_attendance_manager()
+    registration_manager = _get_registration_manager()
+
+    if attendance_manager.is_running:
+        return JsonResponse(
+            _build_running_attendance_response(attendance_manager),
+            status=409,
+        )
+
+    if registration_manager.is_running:
+        return JsonResponse(
+            {
+                "success": False,
+                "mode": "registration",
+                "message": (
+                    "Tidak bisa memulai attendance karena sesi registration "
+                    "sedang berjalan. Hentikan registration terlebih dahulu."
+                ),
+                "session_id": None,
+                "session_name": registration_manager.registration_name,
+            },
+            status=409,
+        )
+
+    success, message = attendance_manager.start_session(
+        session_name=session_name
+    )
+
+    if not success:
+        return JsonResponse(
+            {
+                "success": False,
+                "mode": "attendance",
+                "registration_required": (
+                    "Tidak ada embedding aktif" in message
+                ),
+                "message": message,
+                "session_id": None,
+                "session_name": None,
+            },
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            "success": True,
+            "mode": "attendance",
+            "registration_required": False,
+            "message": message,
+            "session_id": attendance_manager.current_session_id,
+            "session_name": attendance_manager.current_session_name,
+        },
+        status=200,
+    )
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def open_camera_monitor(request):
+    """
+    Membuka window OpenCV di laptop server.
+
+    Tidak membuka RTSP baru.
+    Tidak mengirim frame ke browser.
+    """
+    source = _get_active_monitor_source()
+
+    if source is None:
+        return JsonResponse(
+            {
+                "success": False,
+                "message": (
+                    "Tidak ada sesi kamera aktif. "
+                    "Mulai sesi attendance atau registration "
+                    "terlebih dahulu."
+                ),
+            },
+            status=409,
+        )
+
+    monitor = CameraMonitorWindow.get_instance()
+
+    success, message, monitor_state = monitor.open(
+        source_manager=source["manager"],
+        mode=source["mode"],
+        session_name=source["session_name"],
+    )
+
+    return JsonResponse(
+        {
+            "success": success,
+            "message": message,
+            "state": monitor_state,
+        },
+        status=200 if success else 409,
+    )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def close_camera_monitor(request):
+    monitor = CameraMonitorWindow.get_instance()
+
+    success, message = monitor.close(
+        wait=False
+    )
+
+    return JsonResponse(
+        {
+            "success": success,
+            "message": message,
+            "state": monitor.get_status(),
+        },
+        status=200,
+    )
+
 
 @require_http_methods(["GET"])
-def video_feed(request):
-    """
-    GET /api/cv/video/
+def camera_monitor_status(request):
+    monitor = CameraMonitorWindow.get_instance()
 
-    Bisa streaming:
-    - attendance mode
-    - registration mode
-    """
-    active_manager = _get_active_video_manager()
-
-    if not active_manager:
-        return HttpResponse("Tidak ada sesi kamera aktif.", status=503)
-
-    return StreamingHttpResponse(
-        _gen_mjpeg_frames(active_manager),
-        content_type="multipart/x-mixed-replace; boundary=frame",
+    return JsonResponse(
+        {
+            "success": True,
+            "state": monitor.get_status(),
+        },
+        status=200,
     )
+
 
 
 @csrf_exempt
@@ -82,15 +242,25 @@ def start_session(request):
     """
     POST /api/cv/start/
 
-    Flow normal:
-      - Jika embedding aktif ada: mulai attendance session.
-      - Jika embedding aktif kosong: otomatis mulai registration mode.
+    Legacy endpoint.
+
+    Flow lama:
+    - Coba start attendance.
+    - Jika embedding aktif kosong, otomatis start registration.
+
+    Untuk frontend baru, lebih disarankan memakai:
+    - POST /api/cv/attendance/start/
+    - POST /api/cv/registration/start/
     """
-    try:
-        body = json.loads(request.body or b"{}")
-    except json.JSONDecodeError:
+
+    body, body_error = _parse_json_body(request)
+
+    if body_error:
         return JsonResponse(
-            {"success": False, "message": "Body tidak valid, harus JSON."},
+            {
+                "success": False,
+                "message": body_error,
+            },
             status=400,
         )
 
@@ -98,7 +268,10 @@ def start_session(request):
 
     if not session_name:
         return JsonResponse(
-            {"success": False, "message": "Nama sesi tidak boleh kosong."},
+            {
+                "success": False,
+                "message": "Nama sesi tidak boleh kosong.",
+            },
             status=400,
         )
 
@@ -107,30 +280,19 @@ def start_session(request):
 
     if attendance_manager.is_running:
         return JsonResponse(
-            {
-                "success": False,
-                "mode": "attendance",
-                "message": "Sesi attendance sudah berjalan.",
-                "session_id": attendance_manager.current_session_id,
-                "session_name": attendance_manager.current_session_name,
-            },
-            status=400,
+            _build_running_attendance_response(attendance_manager),
+            status=409,
         )
 
     if registration_manager.is_running:
         return JsonResponse(
-            {
-                "success": True,
-                "mode": "registration",
-                "registration_required": True,
-                "message": "Sesi registration sudah berjalan.",
-                "session_id": None,
-                "session_name": registration_manager.registration_name,
-            },
+            _build_running_registration_response(registration_manager),
             status=200,
         )
 
-    success, message = attendance_manager.start_session(session_name=session_name)
+    success, message = attendance_manager.start_session(
+        session_name=session_name
+    )
 
     if success:
         return JsonResponse(
@@ -145,7 +307,6 @@ def start_session(request):
             status=200,
         )
 
-    # Jika gagal karena belum ada embedding aktif, otomatis masuk registration mode.
     if "Tidak ada embedding aktif" in message:
         reg_success, reg_message = registration_manager.start_registration(
             registration_name=f"Registration - {session_name}"
@@ -157,10 +318,11 @@ def start_session(request):
                 "mode": "registration",
                 "registration_required": True,
                 "attendance_started": False,
-                "message": reg_message if reg_success else reg_message,
+                "message": reg_message,
                 "original_message": message,
                 "session_id": None,
                 "session_name": registration_manager.registration_name,
+                "registration_name": registration_manager.registration_name,
             },
             status=200 if reg_success else 400,
         )
@@ -177,7 +339,6 @@ def start_session(request):
         status=400,
     )
 
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def start_registration(request):
@@ -185,13 +346,30 @@ def start_registration(request):
     POST /api/cv/registration/start/
 
     Manual start registration mode.
+
+    Dipakai untuk tombol:
+    - Start Sesi Registration
+
+    Catatan:
+    - Tetap memakai RegistrationSessionManager.
+    - Tetap memakai FaceDetector.detect().
+    - Tidak membuat WorshipSession.
+    - Tidak membuat Attendance.
+    - Tidak membuat TimelineDataRecord.
     """
-    try:
-        body = json.loads(request.body or b"{}")
-    except json.JSONDecodeError:
+
+    body, body_error = _parse_json_body(request)
+
+    if body_error:
         body = {}
 
-    registration_name = body.get("registration_name") or "Initial Face Registration"
+    registration_name = (
+        body.get("registration_name")
+        or body.get("session_name")
+        or "Initial Face Registration"
+    )
+
+    registration_name = registration_name.strip() or "Initial Face Registration"
 
     attendance_manager = _get_attendance_manager()
     registration_manager = _get_registration_manager()
@@ -200,28 +378,46 @@ def start_registration(request):
         return JsonResponse(
             {
                 "success": False,
-                "message": "Tidak bisa memulai registration karena attendance sedang berjalan.",
+                "mode": "attendance",
+                "message": (
+                    "Tidak bisa memulai registration karena attendance "
+                    "sedang berjalan. Hentikan attendance terlebih dahulu."
+                ),
+                "session_id": attendance_manager.current_session_id,
+                "session_name": attendance_manager.current_session_name,
             },
-            status=400,
+            status=409,
         )
 
-    success, message = registration_manager.start_registration(registration_name)
+    if registration_manager.is_running:
+        return JsonResponse(
+            _build_running_registration_response(registration_manager),
+            status=200,
+        )
+
+    success, message = registration_manager.start_registration(
+        registration_name=registration_name
+    )
 
     return JsonResponse(
         {
             "success": success,
             "mode": "registration",
+            "registration_required": True,
             "message": message,
             "session_id": None,
             "session_name": registration_manager.registration_name,
+            "registration_name": registration_manager.registration_name,
         },
         status=200 if success else 400,
     )
 
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def stop_session(request):
+    CameraMonitorWindow.get_instance().close(
+        wait=False
+    )
     """
     POST /api/cv/stop/
 
@@ -269,6 +465,9 @@ def stop_session(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def stop_registration(request):
+    CameraMonitorWindow.get_instance().close(
+        wait=False
+    )
     """
     POST /api/cv/registration/stop/
     """

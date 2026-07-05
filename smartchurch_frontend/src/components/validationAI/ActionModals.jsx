@@ -842,17 +842,18 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
     <div className="gv-enter grid gap-3 sm:grid-cols-2">
       <div className="sm:col-span-2">
         <label className={labelCls}>Nama Lengkap *</label>
-        <input
-          value={memberForm.full_name}
-          onChange={(e) =>
-            setMemberForm((prev) => ({
-              ...prev,
-              full_name: e.target.value,
-            }))
-          }
-          className={inputCls}
-          placeholder="Nama lengkap jemaat"
-        />
+          <input
+            value={memberForm.full_name}
+            disabled={disabled}
+            onChange={(e) =>
+              setMemberForm((prev) => ({
+                ...prev,
+                full_name: e.target.value,
+              }))
+            }
+            className={inputCls}
+            placeholder="Nama lengkap jemaat"
+          />
       </div>
 
       <div>
@@ -873,19 +874,20 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
 
       <div>
         <label className={labelCls}>Gender</label>
-        <select
-          value={memberForm.gender}
-          onChange={(e) =>
-            setMemberForm((prev) => ({
-              ...prev,
-              gender: e.target.value,
-            }))
-          }
-          className={inputCls}
-        >
-          <option value="L">Laki-laki</option>
-          <option value="P">Perempuan</option>
-        </select>
+          <select
+            value={memberForm.gender}
+            disabled={disabled}
+            onChange={(e) =>
+              setMemberForm((prev) => ({
+                ...prev,
+                gender: e.target.value,
+              }))
+            }
+            className={inputCls}
+          >
+            <option value="L">Laki-laki</option>
+            <option value="P">Perempuan</option>
+          </select>
       </div>
 
       <div>

@@ -1,60 +1,75 @@
-# cv_attendance/vision/face_matcher.py
+#smartchurch_backend\cv_attendance\vision\face_matcher.py
+
 import numpy as np
-from .face_embedder import FaceEmbedder        # ← relative
-from ..utils.logger import get_logger           # ← relative
+
+from ..utils.logger import get_logger
+from .face_embedder import FaceEmbedder
 
 logger = get_logger(__name__)
 
-_NO_MATCH = {"member_id": None, "name": "Tidak Dikenal", "similarity": 0.0}
+_NO_MATCH = {
+    "member_id": None,
+    "name": "Tidak Dikenal",
+    "similarity": 0.0,
+}
 
 
 class FaceMatcher:
     def __init__(self):
-        self._references: list = []
         self._loaded = False
+        self._embedding_matrix = None
+        self._member_ids = []
+        self._names = []
 
     def load_from_db(self, embeddings_data: list) -> None:
-        """
-        Load embedding dari Django ORM result ke memory.
-        embeddings_data: list of {member_id, full_name, face_encoding}
-        """
-        self._references = []
+        embeddings = []
+        member_ids = []
+        names = []
+
         for row in embeddings_data:
             try:
                 vec = FaceEmbedder.from_list(row["face_encoding"])
-                vec = FaceEmbedder.normalize(vec)
-                self._references.append({
-                    "member_id": row["member_id"],
-                    "name":      row["full_name"],
-                    "embedding": vec,
-                })
-            except Exception as e:
-                logger.warning(f"Skip embedding member_id={row.get('member_id')}: {e}")
+                vec = FaceEmbedder.normalize(vec).astype(np.float32)
+
+                embeddings.append(vec)
+                member_ids.append(row["member_id"])
+                names.append(row["full_name"])
+
+            except Exception as exc:
+                logger.warning(
+                    f"Skip embedding member_id={row.get('member_id')}: {exc}"
+                )
+
+        self._member_ids = member_ids
+        self._names = names
+
+        if embeddings:
+            self._embedding_matrix = np.vstack(embeddings).astype(np.float32)
+        else:
+            self._embedding_matrix = None
 
         self._loaded = True
-        logger.info(f"FaceMatcher: {len(self._references)} embedding dimuat")
+
+        logger.info(
+            f"FaceMatcher: {len(self._member_ids)} embedding dimuat "
+            "dengan matrix matching."
+        )
 
     def match(self, query_embedding: np.ndarray) -> dict:
-        if not self._references:
-            logger.warning("FaceMatcher belum di-load")
+        if self._embedding_matrix is None or len(self._member_ids) == 0:
+            logger.warning("FaceMatcher belum di-load atau kosong.")
             return _NO_MATCH
 
-        query    = FaceEmbedder.normalize(query_embedding)
-        best_sim = -1.0
-        best_ref = None
+        query = FaceEmbedder.normalize(query_embedding).astype(np.float32)
 
-        for ref in self._references:
-            sim = float(np.dot(query, ref["embedding"])) # menghitung cosine similarity
-            if sim > best_sim:
-                best_sim = sim
-                best_ref = ref
+        sims = self._embedding_matrix @ query
 
-        if best_ref is None:
-            return _NO_MATCH
+        best_index = int(np.argmax(sims))
+        best_sim = float(sims[best_index])
 
         return {
-            "member_id":  best_ref["member_id"],
-            "name":       best_ref["name"],
+            "member_id": self._member_ids[best_index],
+            "name": self._names[best_index],
             "similarity": best_sim,
         }
 
@@ -64,4 +79,4 @@ class FaceMatcher:
 
     @property
     def total_references(self) -> int:
-        return len(self._references)
+        return len(self._member_ids)

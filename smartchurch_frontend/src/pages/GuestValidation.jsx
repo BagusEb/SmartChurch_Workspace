@@ -10,17 +10,19 @@ import {
 
 import {
   getValidationAiSessions,
+  getValidationAiSessionDetail,
   getValidationAiMemberGuestData,
   verifyValidationAiRecord,
   rejectValidationAiRecord,
   findValidationAiGuestByAi,
   confirmValidationAiGuest,
   addValidationAiMemberFace,
-  getRegistrationValidationGroups,
+  getRegistrationValidationFaces,
 } from "../service/apiClient";
 
 import { findMemberName } from "../components/validationAI/validationHelpers";
 
+import AmbiguousValidationPanel from "../components/validationAI/AmbiguousValidationPanel";
 import SessionCard from "../components/validationAI/SessionCard";
 import ValidationRow from "../components/validationAI/ValidationRow";
 import FacePreviewModal from "../components/validationAI/FacePreviewModal";
@@ -34,31 +36,44 @@ import {
 
 import RegistrationValidationPanel from "../components/validationRegistration/RegistrationValidationPanel";
 
+const AMBIGUOUS_PAGE_SIZE = 50;
+
 export default function GuestValidation() {
   // ─── Data dari backend ───────────────────────────────────────────
   const [validationSessions, setValidationSessions] = useState([]);
+  const [sessionDetailsById, setSessionDetailsById] = useState({});
+
+  const [allMembers, setAllMembers] = useState([]);
+  const [allGuests, setAllGuests] = useState([]);
+
   const [registrationSummary, setRegistrationSummary] = useState({
     total_pending_embeddings: 0,
     total_people_groups: 0,
   });
 
-  const [allMembers, setAllMembers] = useState([]);
-  const [allGuests, setAllGuests] = useState([]);
-
   // ─── Loading & Error ─────────────────────────────────────────────
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [sessionError, setSessionError] = useState(null);
 
-  // ─── Session & Row State ──────────────────────────────────────────
+  const [isLoadingSessionDetail, setIsLoadingSessionDetail] = useState(false);
+  const [isPageChangingDetail, setIsPageChangingDetail] = useState(false);
+  const [sessionDetailError, setSessionDetailError] = useState(null);
+
+  // ─── Mode & Session State ─────────────────────────────────────────
+  const [activeValidationMode, setActiveValidationMode] = useState("attendance");
+  const [hasManualModeChange, setHasManualModeChange] = useState(false);
+
   const [activeSessionId, setActiveSessionId] = useState(null);
+  const [ambiguousPage, setAmbiguousPage] = useState(1);
+
   const [expandedRows, setExpandedRows] = useState({});
   const [selectedFaces, setSelectedFaces] = useState({});
+  const [selectedAmbiguousMap, setSelectedAmbiguousMap] = useState({});
 
   // ─── Modal & Toast ────────────────────────────────────────────────
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
-
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
 
   // ─── Guest Modal State ────────────────────────────────────────────
@@ -78,6 +93,7 @@ export default function GuestValidation() {
   const [memberMode, setMemberMode] = useState("existing");
   const [memberSearch, setMemberSearch] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState("");
+
   const [memberForm, setMemberForm] = useState({
     full_name: "",
     nickname: "",
@@ -89,9 +105,35 @@ export default function GuestValidation() {
   });
 
   // ─── Verify Modal State ───────────────────────────────────────────
-  const [verifyMode, setVerifyMode] = useState("ai"); // ai | manual
+  const [verifyMode, setVerifyMode] = useState("ai");
   const [verifyMemberSearch, setVerifyMemberSearch] = useState("");
   const [selectedVerifyMemberId, setSelectedVerifyMemberId] = useState("");
+
+  // ─── Toast ────────────────────────────────────────────────────────
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    window.setTimeout(() => setToast(null), 2800);
+  };
+
+  // ─── Fetch Members + Guests ───────────────────────────────────────
+  const fetchMembersAndGuests = useCallback(async (q = "") => {
+    try {
+      const data = await getValidationAiMemberGuestData(q);
+
+      if (data?.success) {
+        setAllMembers(data.members || []);
+        setAllGuests(data.guests || []);
+      }
+    } catch (error) {
+      console.error("Gagal fetch member/guest data:", error);
+    }
+  }, []);
+
+  const ensureMembersAndGuestsLoaded = useCallback(async () => {
+    if (allMembers.length > 0 && allGuests.length > 0) return;
+
+    await fetchMembersAndGuests();
+  }, [allMembers.length, allGuests.length, fetchMembersAndGuests]);
 
   // ─── Fetch Sessions ───────────────────────────────────────────────
   const fetchSessions = useCallback(async () => {
@@ -117,7 +159,10 @@ export default function GuestValidation() {
 
   const fetchRegistrationSummary = useCallback(async () => {
     try {
-      const data = await getRegistrationValidationGroups();
+      const data = await getRegistrationValidationFaces({
+        page: 1,
+        pageSize: 20,
+      });
 
       if (data?.success) {
         setRegistrationSummary(
@@ -141,31 +186,90 @@ export default function GuestValidation() {
     }
   }, []);
 
-  // ─── Fetch Members + Guests ───────────────────────────────────────
-  const fetchMembersAndGuests = useCallback(async (q = "") => {
-    try {
-      const data = await getValidationAiMemberGuestData(q);
-
-      if (data?.success) {
-        setAllMembers(data.members || []);
-        setAllGuests(data.guests || []);
-      }
-    } catch (error) {
-      console.error("Gagal fetch member/guest data:", error);
-    }
-  }, []);
-
   const refreshAllValidationData = useCallback(() => {
     fetchSessions();
     fetchRegistrationSummary();
-    fetchMembersAndGuests();
-  }, [fetchSessions, fetchRegistrationSummary, fetchMembersAndGuests]);
+  }, [fetchSessions, fetchRegistrationSummary]);
 
   useEffect(() => {
     refreshAllValidationData();
   }, [refreshAllValidationData]);
 
-  // ─── Computed ─────────────────────────────────────────────────────
+  // ─── Load Session Detail ──────────────────────────────────────────
+  const loadSessionDetail = useCallback(
+    async (sessionId, page = 1, options = {}) => {
+      const { force = false, silent = false, includeUnknown = true } = options;
+
+      if (!sessionId) return;
+
+      const currentDetail = sessionDetailsById[sessionId];
+      const cachedPage = currentDetail?.ambiguousPages?.[String(page)];
+
+      if (!force && cachedPage) {
+        setAmbiguousPage(page);
+        return;
+      }
+
+      if (silent) {
+        setIsPageChangingDetail(true);
+      } else {
+        setIsLoadingSessionDetail(true);
+      }
+
+      setSessionDetailError(null);
+
+      try {
+        const data = await getValidationAiSessionDetail(sessionId, {
+          ambiguousPage: page,
+          ambiguousPageSize: AMBIGUOUS_PAGE_SIZE,
+          includeUnknown,
+          includeAmbiguous: true,
+        });
+
+        if (!data?.success) {
+          setSessionDetailError(data?.message || "Gagal memuat detail session.");
+          return;
+        }
+
+        setSessionDetailsById((prev) => {
+          const oldDetail = prev[sessionId] || {};
+          const oldPages = oldDetail.ambiguousPages || {};
+
+          const nextDetail = {
+            ...oldDetail,
+            ...data,
+            unknown_people_groups: includeUnknown
+              ? data.unknown_people_groups || []
+              : oldDetail.unknown_people_groups || [],
+            ambiguousPages: {
+              ...oldPages,
+              [String(page)]: data.ambiguous_records || [],
+            },
+            ambiguous_records: data.ambiguous_records || [],
+            ambiguous_pagination: data.ambiguous_pagination,
+            summary: data.summary,
+            session: data.session,
+          };
+
+          return {
+            ...prev,
+            [sessionId]: nextDetail,
+          };
+        });
+
+        setAmbiguousPage(Number(data?.ambiguous_pagination?.page || page));
+      } catch (error) {
+        console.error("Gagal load session detail:", error);
+        setSessionDetailError("Gagal memuat detail validasi session.");
+      } finally {
+        setIsLoadingSessionDetail(false);
+        setIsPageChangingDetail(false);
+      }
+    },
+    [sessionDetailsById]
+  );
+
+  // ─── Computed Summary ─────────────────────────────────────────────
   const attendancePending = useMemo(() => {
     return validationSessions.reduce(
       (sum, item) => sum + Number(item.summary?.total_pending || 0),
@@ -179,60 +283,112 @@ export default function GuestValidation() {
 
   const totalPending = attendancePending + registrationPending;
 
+  useEffect(() => {
+    if (isLoadingSessions || sessionError) return;
+
+    const hasAttendancePending = validationSessions.length > 0;
+    const hasRegistrationPending = registrationPending > 0;
+
+    if (!hasManualModeChange) {
+      if (hasAttendancePending) {
+        setActiveValidationMode("attendance");
+        return;
+      }
+
+      if (hasRegistrationPending) {
+        setActiveValidationMode("registration");
+        return;
+      }
+    }
+
+    if (
+      activeValidationMode === "registration" &&
+      !hasRegistrationPending &&
+      hasAttendancePending
+    ) {
+      setActiveValidationMode("attendance");
+    }
+  }, [
+    isLoadingSessions,
+    sessionError,
+    validationSessions.length,
+    registrationPending,
+    hasManualModeChange,
+    activeValidationMode,
+  ]);
+
   const activeSession = useMemo(() => {
-    return validationSessions.find(
+    if (!activeSessionId) return null;
+
+    const summaryItem = validationSessions.find(
       (item) => item.session.id === activeSessionId
     );
-  }, [validationSessions, activeSessionId]);
 
+    const detail = sessionDetailsById[activeSessionId];
+
+    if (!summaryItem && !detail) return null;
+
+    const currentAmbiguousRecords =
+      detail?.ambiguousPages?.[String(ambiguousPage)] ||
+      detail?.ambiguous_records ||
+      [];
+
+    return {
+      ...(summaryItem || {}),
+      ...(detail || {}),
+      session: detail?.session || summaryItem?.session,
+      summary: detail?.summary || summaryItem?.summary,
+      unknown_people_groups: detail?.unknown_people_groups || [],
+      ambiguous_records: currentAmbiguousRecords,
+      ambiguous_pagination: detail?.ambiguous_pagination || {
+        page: 1,
+        page_size: AMBIGUOUS_PAGE_SIZE,
+        total_items: summaryItem?.summary?.total_ambiguous_records || 0,
+        total_pages: 1,
+        has_next: false,
+        has_previous: false,
+        next_page: null,
+        previous_page: null,
+      },
+    };
+  }, [activeSessionId, validationSessions, sessionDetailsById, ambiguousPage]);
+
+  // Penting:
+  // activeRows sekarang hanya untuk UNKNOWN GROUP.
+  // Ambiguous tidak lagi masuk ValidationRow, tapi masuk AmbiguousValidationPanel.
   const activeRows = useMemo(() => {
     if (!activeSession) return [];
 
-    const ambiguousRows = (activeSession.ambiguous_records || []).map(
-      (record) => ({
-        rowKey: `ambiguous-${record.id}`,
-        type: "ambiguous",
-        label: `Ambiguous #${record.id}`,
-        helper: "Wajah mirip dengan salah satu jemaat, tetapi confidence belum cukup aman.",
-        count: 1,
-        records: [record],
-        recordIds: [record.id],
-        confidence: record.confidence,
-        matchedMemberId: record.matched_member_id,
-        matchedMemberName:
-          record.matched_member_name ||
-          findMemberName(allMembers, record.matched_member_id) ||
-          "Jemaat kandidat",
-        aiRecommendation: record.ai_recommendation || {
-          member_id: record.matched_member_id,
-          full_name:
-            record.matched_member_name ||
-            findMemberName(allMembers, record.matched_member_id) ||
-            "Jemaat kandidat",
-          similarity: record.confidence,
-          note: "Kandidat paling mendekati dari hasil recognition AI",
-        },
-      })
-    );
+    return (activeSession.unknown_people_groups || []).map((group, index) => ({
+      rowKey: `unknown-${group.group_id || index}`,
+      type: "unknown",
+      label: group.label || `People ${index + 1}`,
+      helper: `${
+        group.count || group.records?.length || 0
+      } wajah dari orang yang sama`,
+      count: group.count || group.records?.length || 0,
+      records: group.records || [],
+      recordIds:
+        group.record_ids || (group.records || []).map((record) => record.id),
+      confidence: group.average_confidence,
+      representativeImage: group.representative_image,
+      aiRecommendation: group.ai_recommendation || null,
+    }));
+  }, [activeSession]);
 
-    const unknownRows = (activeSession.unknown_people_groups || []).map(
-      (group, index) => ({
-        rowKey: `unknown-${group.group_id || index}`,
-        type: "unknown",
-        label: group.label || `People ${index + 1}`,
-        helper: `${group.count || group.records?.length || 0} wajah dari orang yang sama`,
-        count: group.count || group.records?.length || 0,
-        records: group.records || [],
-        recordIds:
-          group.record_ids || (group.records || []).map((record) => record.id),
-        confidence: group.average_confidence,
-        representativeImage: group.representative_image,
-        aiRecommendation: group.ai_recommendation || null,
-      })
-    );
+  const ambiguousRecords = useMemo(() => {
+    return activeSession?.ambiguous_records || [];
+  }, [activeSession]);
 
-    return [...ambiguousRows, ...unknownRows];
-  }, [activeSession, allMembers]);
+  const ambiguousPagination = useMemo(() => {
+    return activeSession?.ambiguous_pagination || {};
+  }, [activeSession]);
+
+  const selectedAmbiguousRecords = useMemo(() => {
+    return Object.values(selectedAmbiguousMap);
+  }, [selectedAmbiguousMap]);
+
+  const activeAmbiguousTotal = Number(ambiguousPagination?.total_items || 0);
 
   // ─── Filter member & guest client-side ───────────────────────────
   const filteredMembers = useMemo(() => {
@@ -295,26 +451,42 @@ export default function GuestValidation() {
       .slice(0, 12);
   }, [allGuests, guestSearchName]);
 
-  // ─── Toast ────────────────────────────────────────────────────────
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    window.setTimeout(() => setToast(null), 2800);
-  };
-
   // ─── Session Controls ─────────────────────────────────────────────
-  const openSession = (sessionId) => {
+  const openSession = async (sessionId) => {
     setActiveSessionId(sessionId);
     setExpandedRows({});
     setSelectedFaces({});
+    setSelectedAmbiguousMap({});
+    setAmbiguousPage(1);
+
+    await loadSessionDetail(sessionId, 1, {
+      force: false,
+      silent: false,
+      includeUnknown: true,
+    });
   };
 
   const closeSession = () => {
     setActiveSessionId(null);
     setExpandedRows({});
     setSelectedFaces({});
+    setSelectedAmbiguousMap({});
+    setAmbiguousPage(1);
+    setSessionDetailError(null);
   };
 
-  // ─── Row Controls ─────────────────────────────────────────────────
+  const switchValidationMode = (mode) => {
+    setHasManualModeChange(true);
+    setActiveValidationMode(mode);
+
+    setActiveSessionId(null);
+    setExpandedRows({});
+    setSelectedFaces({});
+    setSelectedAmbiguousMap({});
+    setAmbiguousPage(1);
+  };
+
+  // ─── Row Controls: Unknown Group ──────────────────────────────────
   const toggleRow = (rowKey) => {
     setExpandedRows((prev) => ({
       ...prev,
@@ -322,21 +494,15 @@ export default function GuestValidation() {
     }));
   };
 
-  const isFaceSelected = (rowKey, recordId) =>
-    selectedFaces[rowKey]?.includes(recordId);
+  const isFaceSelected = (rowKey, recordId) => {
+    return selectedFaces[rowKey]?.includes(recordId);
+  };
 
   const toggleFaceSelection = (row, record) => {
     const rowKey = row.rowKey;
 
     setSelectedFaces((prev) => {
       const current = prev[rowKey] || [];
-
-      if (row.type === "ambiguous") {
-        return {
-          ...prev,
-          [rowKey]: [record.id],
-        };
-      }
 
       if (current.includes(record.id)) {
         return {
@@ -379,100 +545,115 @@ export default function GuestValidation() {
     return true;
   };
 
-  // ─── Remove validated row dari state lokal ─────────────────────────
-  const removeValidatedRows = (sessionId, row) => {
-    setValidationSessions((prev) => {
-      return prev
-        .map((sessionItem) => {
-          if (sessionItem.session.id !== sessionId) return sessionItem;
+  // ─── Ambiguous Selected Mode ──────────────────────────────────────
+  const toggleAmbiguousSelection = (record) => {
+    setSelectedAmbiguousMap((prev) => {
+      const key = String(record.id);
+      const next = { ...prev };
 
-          let nextUnknownGroups = sessionItem.unknown_people_groups || [];
-          let nextAmbiguousRecords = sessionItem.ambiguous_records || [];
+      if (next[key]) {
+        delete next[key];
+      } else {
+        next[key] = record;
+      }
 
-          if (row.type === "ambiguous") {
-            nextAmbiguousRecords = nextAmbiguousRecords.filter(
-              (record) => record.id !== row.records[0]?.id
-            );
-          }
-
-          if (row.type === "unknown") {
-            nextUnknownGroups = nextUnknownGroups.filter(
-              (group) => `unknown-${group.group_id}` !== row.rowKey
-            );
-          }
-
-          const totalUnknownRecords = nextUnknownGroups.reduce(
-            (sum, group) => sum + Number(group.count || group.records?.length || 0),
-            0
-          );
-
-          const nextTotalPending =
-            nextAmbiguousRecords.length + totalUnknownRecords;
-
-          return {
-            ...sessionItem,
-            summary: {
-              ...sessionItem.summary,
-              total_pending: nextTotalPending,
-              total_unknown_people_groups: nextUnknownGroups.length,
-              total_unknown_records: totalUnknownRecords,
-              total_ambiguous_records: nextAmbiguousRecords.length,
-            },
-            unknown_people_groups: nextUnknownGroups,
-            ambiguous_records: nextAmbiguousRecords,
-          };
-        })
-        .filter((sessionItem) => Number(sessionItem.summary.total_pending || 0) > 0);
-    });
-
-    setModal(null);
-
-    setExpandedRows((prev) => {
-      const copy = { ...prev };
-      delete copy[row.rowKey];
-      return copy;
-    });
-
-    setSelectedFaces((prev) => {
-      const copy = { ...prev };
-      delete copy[row.rowKey];
-      return copy;
+      return next;
     });
   };
 
-  // ─── Modal openers ────────────────────────────────────────────────
-  const openVerifyModal = (row) => {
-    setVerifyMode("ai");
-    setVerifyMemberSearch("");
-    setSelectedVerifyMemberId("");
+  const toggleSelectAllAmbiguousPage = () => {
+    if (ambiguousRecords.length === 0) return;
 
-    setModal({
-      type: "verify",
-      row,
-      sessionId: activeSessionId,
+    setSelectedAmbiguousMap((prev) => {
+      const next = { ...prev };
+
+      const isAllSelected = ambiguousRecords.every((record) =>
+        Boolean(next[String(record.id)])
+      );
+
+      if (isAllSelected) {
+        ambiguousRecords.forEach((record) => {
+          delete next[String(record.id)];
+        });
+
+        return next;
+      }
+
+      ambiguousRecords.forEach((record) => {
+        next[String(record.id)] = record;
+      });
+
+      return next;
     });
   };
 
-  const openGuestModal = (row) => {
-    if (!ensureExactlyOneFaceForGuest(row)) return;
+  const clearSelectedAmbiguous = () => {
+    setSelectedAmbiguousMap({});
+  };
 
-    setGuestSearchName("");
-    setSelectedGuestId("");
-    setAiRecommendedGuest(null);
-    setShowGuestForm(false);
-    setGuestForm({
-      full_name: "",
-      phone: "",
-      from_where: "",
-    });
+  const changeAmbiguousPage = async (page) => {
+    const targetPage = Number(page);
 
-    setModal({
-      type: "guest",
-      row,
-      sessionId: activeSessionId,
+    if (!activeSessionId) return;
+    if (!targetPage) return;
+    if (targetPage === ambiguousPage) return;
+    if (isPageChangingDetail || isSubmittingAction) return;
+
+    await loadSessionDetail(activeSessionId, targetPage, {
+      force: false,
+      silent: true,
+      includeUnknown: false,
     });
   };
 
+  const refreshAmbiguousPage = async () => {
+    if (!activeSessionId) return;
+
+    await loadSessionDetail(activeSessionId, ambiguousPage, {
+      force: true,
+      silent: true,
+      includeUnknown: false,
+    });
+  };
+
+  const buildAmbiguousSelectedRow = (records) => {
+    const safeRecords = records || [];
+    const firstRecord = safeRecords[0];
+
+    return {
+      rowKey: "ambiguous-selected-flat",
+      type: "ambiguous",
+      label:
+        safeRecords.length === 1
+          ? `Ambiguous #${firstRecord.id}`
+          : `Selected Ambiguous (${safeRecords.length})`,
+      helper: `${safeRecords.length} ambiguous record dipilih`,
+      count: safeRecords.length,
+      records: safeRecords,
+      recordIds: safeRecords.map((record) => record.id),
+      confidence: firstRecord?.confidence,
+      matchedMemberId: firstRecord?.matched_member_id,
+      matchedMemberName:
+        firstRecord?.matched_member_name ||
+        findMemberName(allMembers, firstRecord?.matched_member_id) ||
+        "Jemaat kandidat",
+      aiRecommendation:
+        safeRecords.length === 1
+          ? firstRecord?.ai_recommendation || {
+              member_id: firstRecord?.matched_member_id,
+              full_name:
+                firstRecord?.matched_member_name ||
+                findMemberName(allMembers, firstRecord?.matched_member_id) ||
+                "Jemaat kandidat",
+              similarity: firstRecord?.confidence,
+              note: "Kandidat paling mendekati dari hasil recognition AI",
+            }
+          : null,
+      representativeImage: firstRecord?.face_image || null,
+    };
+  };
+
+  // ─── Modal State Reset ────────────────────────────────────────────
   const resetMemberModalState = () => {
     setMemberMode("existing");
     setMemberSearch("");
@@ -488,7 +669,54 @@ export default function GuestValidation() {
     });
   };
 
-  const openRealAddMemberModal = (row) => {
+  const resetGuestModalState = () => {
+    setGuestSearchName("");
+    setSelectedGuestId("");
+    setAiRecommendedGuest(null);
+    setShowGuestForm(false);
+    setGuestForm({
+      full_name: "",
+      phone: "",
+      from_where: "",
+    });
+  };
+
+  const resetVerifyModalState = () => {
+    setVerifyMode("ai");
+    setVerifyMemberSearch("");
+    setSelectedVerifyMemberId("");
+  };
+
+  // ─── Modal Openers: Unknown Group ─────────────────────────────────
+  const openVerifyModal = async (row) => {
+    await ensureMembersAndGuestsLoaded();
+
+    resetVerifyModalState();
+
+    setModal({
+      type: "verify",
+      row,
+      sessionId: activeSessionId,
+    });
+  };
+
+  const openGuestModal = async (row) => {
+    if (!ensureExactlyOneFaceForGuest(row)) return;
+
+    await ensureMembersAndGuestsLoaded();
+
+    resetGuestModalState();
+
+    setModal({
+      type: "guest",
+      row,
+      sessionId: activeSessionId,
+    });
+  };
+
+  const openRealAddMemberModal = async (row) => {
+    await ensureMembersAndGuestsLoaded();
+
     resetMemberModalState();
 
     setModal({
@@ -498,12 +726,7 @@ export default function GuestValidation() {
     });
   };
 
-  const openAddMemberModal = (row) => {
-    if (row.type === "ambiguous") {
-      openRealAddMemberModal(row);
-      return;
-    }
-
+  const openAddMemberModal = async (row) => {
     const selected = getSelectedRecords(row);
 
     if (selected.length === 0) {
@@ -523,7 +746,7 @@ export default function GuestValidation() {
       return;
     }
 
-    openRealAddMemberModal(row);
+    await openRealAddMemberModal(row);
   };
 
   const openRejectModal = (row) => {
@@ -534,7 +757,237 @@ export default function GuestValidation() {
     });
   };
 
-  // ─── Modal confirm handlers ───────────────────────────────────────
+  // ─── Modal Openers: Ambiguous Flat ────────────────────────────────
+  const openAmbiguousVerifyModal = async () => {
+    if (selectedAmbiguousRecords.length === 0) {
+      showToast("Pilih minimal satu gambar ambiguous.", "warning");
+      return;
+    }
+
+    if (selectedAmbiguousRecords.length > 1) {
+      showToast(
+        "Untuk Verify ambiguous, pilih 1 gambar saja agar tidak salah verifikasi member.",
+        "warning"
+      );
+      return;
+    }
+
+    await ensureMembersAndGuestsLoaded();
+
+    resetVerifyModalState();
+
+    setModal({
+      type: "verify",
+      row: buildAmbiguousSelectedRow(selectedAmbiguousRecords),
+      sessionId: activeSessionId,
+    });
+  };
+
+  const openAmbiguousGuestModal = async () => {
+    if (selectedAmbiguousRecords.length !== 1) {
+      showToast("Untuk Guest ambiguous, pilih tepat 1 gambar.", "warning");
+      return;
+    }
+
+    await ensureMembersAndGuestsLoaded();
+
+    resetGuestModalState();
+
+    setModal({
+      type: "guest",
+      row: buildAmbiguousSelectedRow(selectedAmbiguousRecords),
+      sessionId: activeSessionId,
+    });
+  };
+
+  const openAmbiguousAddMemberModal = async () => {
+    if (selectedAmbiguousRecords.length === 0) {
+      showToast("Pilih minimal satu gambar ambiguous.", "warning");
+      return;
+    }
+
+    await ensureMembersAndGuestsLoaded();
+
+    resetMemberModalState();
+
+    setModal({
+      type: "member",
+      row: buildAmbiguousSelectedRow(selectedAmbiguousRecords),
+      sessionId: activeSessionId,
+    });
+  };
+
+  const openAmbiguousRejectModal = () => {
+    if (selectedAmbiguousRecords.length === 0) {
+      showToast("Pilih minimal satu gambar ambiguous.", "warning");
+      return;
+    }
+
+    setModal({
+      type: "reject",
+      row: buildAmbiguousSelectedRow(selectedAmbiguousRecords),
+      sessionId: activeSessionId,
+    });
+  };
+
+  // ─── Remove Processed Records from Local State ─────────────────────
+  const removeProcessedValidationRecords = (sessionId, row, processedIds = []) => {
+    const ids = processedIds.length
+      ? processedIds.map((id) => Number(id))
+      : (row.recordIds || row.records.map((record) => record.id)).map((id) =>
+          Number(id)
+        );
+
+    const idSet = new Set(ids.map(String));
+
+    setSessionDetailsById((prev) => {
+      const detail = prev[sessionId];
+
+      if (!detail) return prev;
+
+      const nextAmbiguousPages = {};
+
+      Object.entries(detail.ambiguousPages || {}).forEach(([page, records]) => {
+        nextAmbiguousPages[page] = records.filter(
+          (record) => !idSet.has(String(record.id))
+        );
+      });
+
+      const nextUnknownGroups = (detail.unknown_people_groups || [])
+        .map((group) => {
+          const nextRecords = (group.records || []).filter(
+            (record) => !idSet.has(String(record.id))
+          );
+
+          if (nextRecords.length === 0) return null;
+
+          return {
+            ...group,
+            records: nextRecords,
+            record_ids: nextRecords.map((record) => record.id),
+            count: nextRecords.length,
+          };
+        })
+        .filter(Boolean);
+
+      const removedUnknownCount = (row.records || []).filter(
+        (record) => record.detection_status === "unknown"
+      ).length;
+
+      const removedAmbiguousCount = (row.records || []).filter(
+        (record) => record.detection_status === "ambiguous"
+      ).length;
+
+      const currentSummary = detail.summary || {};
+
+      const nextSummary = {
+        ...currentSummary,
+        total_pending: Math.max(
+          Number(currentSummary.total_pending || 0) - ids.length,
+          0
+        ),
+        total_unknown_records: Math.max(
+          Number(currentSummary.total_unknown_records || 0) -
+            removedUnknownCount,
+          0
+        ),
+        total_unknown_people_groups: nextUnknownGroups.length,
+        total_ambiguous_records: Math.max(
+          Number(currentSummary.total_ambiguous_records || 0) -
+            removedAmbiguousCount,
+          0
+        ),
+      };
+
+      return {
+        ...prev,
+        [sessionId]: {
+          ...detail,
+          summary: nextSummary,
+          unknown_people_groups: nextUnknownGroups,
+          ambiguousPages: nextAmbiguousPages,
+          ambiguous_records:
+            nextAmbiguousPages[String(ambiguousPage)] ||
+            detail.ambiguous_records ||
+            [],
+          ambiguous_pagination: {
+            ...(detail.ambiguous_pagination || {}),
+            total_items: nextSummary.total_ambiguous_records,
+          },
+        },
+      };
+    });
+
+    setValidationSessions((prev) => {
+      return prev
+        .map((sessionItem) => {
+          if (sessionItem.session.id !== sessionId) return sessionItem;
+
+          const currentSummary = sessionItem.summary || {};
+          const nextTotalPending = Math.max(
+            Number(currentSummary.total_pending || 0) - ids.length,
+            0
+          );
+
+          const nextTotalAmbiguous =
+            row.type === "ambiguous"
+              ? Math.max(
+                  Number(currentSummary.total_ambiguous_records || 0) -
+                    ids.length,
+                  0
+                )
+              : currentSummary.total_ambiguous_records;
+
+          const nextTotalUnknown =
+            row.type === "unknown"
+              ? Math.max(
+                  Number(currentSummary.total_unknown_records || 0) -
+                    ids.length,
+                  0
+                )
+              : currentSummary.total_unknown_records;
+
+          return {
+            ...sessionItem,
+            summary: {
+              ...currentSummary,
+              total_pending: nextTotalPending,
+              total_ambiguous_records: nextTotalAmbiguous,
+              total_unknown_records: nextTotalUnknown,
+            },
+          };
+        })
+        .filter(
+          (sessionItem) => Number(sessionItem.summary?.total_pending || 0) > 0
+        );
+    });
+
+    setSelectedAmbiguousMap((prev) => {
+      const next = { ...prev };
+
+      ids.forEach((id) => {
+        delete next[String(id)];
+      });
+
+      return next;
+    });
+
+    setExpandedRows((prev) => {
+      const copy = { ...prev };
+      delete copy[row.rowKey];
+      return copy;
+    });
+
+    setSelectedFaces((prev) => {
+      const copy = { ...prev };
+      delete copy[row.rowKey];
+      return copy;
+    });
+
+    setModal(null);
+  };
+
+  // ─── Confirm: Verify ──────────────────────────────────────────────
   const handleConfirmVerify = async () => {
     if (!modal?.row || isSubmittingAction) return;
 
@@ -575,7 +1028,7 @@ export default function GuestValidation() {
       record_ids: row.recordIds || row.records.map((record) => record.id),
     };
 
-    if (row.type === "unknown" && selectedRecords.length === 1) {
+    if (row.type === "unknown" && selectedRecords.length >= 1) {
       payload.center_record_id = selectedRecords[0].id;
     }
 
@@ -595,9 +1048,15 @@ export default function GuestValidation() {
         }.`
       );
 
-      removeValidatedRows(modal.sessionId, row);
+      removeProcessedValidationRecords(
+        modal.sessionId,
+        row,
+        result?.processed_record_ids ||
+          row.recordIds ||
+          row.records.map((record) => record.id)
+      );
+
       fetchSessions();
-      fetchRegistrationSummary();
     } catch (error) {
       console.error("Gagal verifikasi AI:", error);
 
@@ -612,6 +1071,7 @@ export default function GuestValidation() {
     }
   };
 
+  // ─── Confirm: Guest Find by AI ────────────────────────────────────
   const handleFindGuestByAi = async () => {
     if (!modal?.row || isFindingGuestByAi || isSubmittingAction) return;
 
@@ -644,7 +1104,10 @@ export default function GuestValidation() {
       if (!recommendation) {
         setAiRecommendedGuest(null);
         setSelectedGuestId("");
-        showToast(result?.message || "AI belum menemukan tamu yang cocok.", "warning");
+        showToast(
+          result?.message || "AI belum menemukan tamu yang cocok.",
+          "warning"
+        );
         return;
       }
 
@@ -673,6 +1136,7 @@ export default function GuestValidation() {
     }
   };
 
+  // ─── Confirm: Guest ───────────────────────────────────────────────
   const handleConfirmGuest = async () => {
     if (!modal?.row || isSubmittingAction) return;
 
@@ -739,7 +1203,13 @@ export default function GuestValidation() {
         }.`.trim()
       );
 
-      removeValidatedRows(modal.sessionId, row);
+      removeProcessedValidationRecords(
+        modal.sessionId,
+        row,
+        result?.processed_record_ids ||
+          row.recordIds ||
+          row.records.map((record) => record.id)
+      );
 
       fetchSessions();
       fetchRegistrationSummary();
@@ -758,6 +1228,7 @@ export default function GuestValidation() {
     }
   };
 
+  // ─── Confirm: Add Member ──────────────────────────────────────────
   const handleConfirmMember = async () => {
     if (!modal?.row || isSubmittingAction) return;
 
@@ -832,7 +1303,13 @@ export default function GuestValidation() {
         } dengan ${totalEmbeddings} data wajah.`
       );
 
-      removeValidatedRows(modal.sessionId, row);
+      removeProcessedValidationRecords(
+        modal.sessionId,
+        row,
+        result?.processed_record_ids ||
+          row.recordIds ||
+          row.records.map((record) => record.id)
+      );
 
       fetchSessions();
       fetchRegistrationSummary();
@@ -851,6 +1328,7 @@ export default function GuestValidation() {
     }
   };
 
+  // ─── Confirm: Reject ──────────────────────────────────────────────
   const handleConfirmReject = async () => {
     if (!modal?.row || isSubmittingAction) return;
 
@@ -873,7 +1351,13 @@ export default function GuestValidation() {
 
       showToast(`${row.label} berhasil ditolak.`);
 
-      removeValidatedRows(modal.sessionId, row);
+      removeProcessedValidationRecords(
+        modal.sessionId,
+        row,
+        result?.processed_record_ids ||
+          row.recordIds ||
+          row.records.map((record) => record.id)
+      );
 
       fetchSessions();
       fetchRegistrationSummary();
@@ -949,12 +1433,29 @@ export default function GuestValidation() {
 
                 {!isLoadingSessions && totalPending > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
+                    <button
+                      type="button"
+                      onClick={() => switchValidationMode("attendance")}
+                      className={`rounded-full px-3 py-1 text-xs font-bold transition-all ${
+                        activeValidationMode === "attendance"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                      }`}
+                    >
                       Attendance: {attendancePending}
-                    </span>
-                    <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => switchValidationMode("registration")}
+                      className={`rounded-full px-3 py-1 text-xs font-bold transition-all ${
+                        activeValidationMode === "registration"
+                          ? "bg-amber-600 text-white shadow-sm"
+                          : "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                      }`}
+                    >
                       Registration: {registrationPending}
-                    </span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1004,6 +1505,7 @@ export default function GuestValidation() {
             <p className="font-extrabold text-rose-800">{sessionError}</p>
 
             <button
+              type="button"
               onClick={refreshAllValidationData}
               className="mt-4 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-700"
             >
@@ -1012,93 +1514,183 @@ export default function GuestValidation() {
           </section>
         )}
 
-        {/* Registration fallback: tampil hanya kalau attendance validation kosong */}
-        {!isLoadingSessions && !sessionError && validationSessions.length === 0 && (
-          <RegistrationValidationPanel
-            onAfterChange={() => {
-              fetchRegistrationSummary();
-              fetchSessions();
-              fetchMembersAndGuests();
-            }}
-          />
-        )}
+        {/* Registration validation panel */}
+        {!isLoadingSessions &&
+          !sessionError &&
+          activeValidationMode === "registration" && (
+            <RegistrationValidationPanel
+              onAfterChange={(payload = {}) => {
+                const processedCount = Number(payload.processedCount || 0);
+
+                if (processedCount > 0) {
+                  setRegistrationSummary((prev) => ({
+                    ...prev,
+                    total_pending_embeddings: Math.max(
+                      Number(prev.total_pending_embeddings || 0) - processedCount,
+                      0
+                    ),
+                  }));
+                }
+              }}
+            />
+          )}
+
+        {/* Attendance empty state */}
+        {!isLoadingSessions &&
+          !sessionError &&
+          activeValidationMode === "attendance" &&
+          validationSessions.length === 0 && (
+            <section className="gv-soft-grid flex min-h-[320px] flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-emerald-50 text-emerald-600">
+                <CheckCircle size={32} />
+              </div>
+
+              <h3 className="text-xl font-extrabold text-slate-800">
+                Tidak Ada Pending Attendance
+              </h3>
+
+              <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+                Data attendance sudah bersih. Jika masih ada pending registration,
+                klik tombol Registration di card atas.
+              </p>
+            </section>
+          )}
 
         {/* Session list attendance validation */}
-        {!isLoadingSessions && !sessionError && validationSessions.length > 0 && (
-          <>
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              {validationSessions.map((item, index) => (
-                <SessionCard
-                  key={item.session.id}
-                  item={item}
-                  index={index}
-                  isActive={activeSessionId === item.session.id}
-                  onOpen={() => openSession(item.session.id)}
-                />
-              ))}
-            </section>
+        {!isLoadingSessions &&
+          !sessionError &&
+          activeValidationMode === "attendance" &&
+          validationSessions.length > 0 && (
+            <>
+              <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {validationSessions.map((item, index) => (
+                  <SessionCard
+                    key={item.session.id}
+                    item={item}
+                    index={index}
+                    isActive={activeSessionId === item.session.id}
+                    onOpen={() => openSession(item.session.id)}
+                  />
+                ))}
+              </section>
 
-            {/* Active session detail */}
-            {activeSession && (
-              <section className="gv-enter rounded-3xl border border-slate-200 bg-white shadow-sm">
-                <div className="flex flex-col gap-3 border-b border-slate-100 p-5 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-extrabold text-slate-800">
-                        {activeSession.session.session_name}
-                      </h3>
+              {/* Active session detail */}
+              {activeSession && (
+                <section className="gv-enter rounded-3xl border border-slate-200 bg-white shadow-sm">
+                  <div className="flex flex-col gap-3 border-b border-slate-100 p-5 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-extrabold text-slate-800">
+                          {activeSession.session.session_name}
+                        </h3>
 
-                      <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
-                        Detail Validasi
-                      </span>
+                        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
+                          Detail Validasi
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Ambiguous dipilih secara flat. Unknown tetap tampil
+                        sebagai group wajah.
+                      </p>
                     </div>
 
-                    <p className="mt-1 text-sm text-slate-500">
-                      Klik baris data untuk melihat wajah, lalu pilih action.
-                    </p>
+                    <button
+                      type="button"
+                      onClick={closeSession}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-50"
+                    >
+                      Tutup
+                    </button>
                   </div>
 
-                  <button
-                    onClick={closeSession}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-50"
-                  >
-                    Tutup
-                  </button>
-                </div>
-
-                <div className="space-y-3 p-4">
-                  {activeRows.length === 0 ? (
-                    <div className="flex items-center justify-center py-10 text-slate-400">
-                      <CheckCircle size={20} className="mr-2 text-emerald-500" />
-                      <span className="text-sm font-semibold">
-                        Tidak ada data pending di sesi ini.
-                      </span>
+                  {sessionDetailError && (
+                    <div className="p-4">
+                      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">
+                        {sessionDetailError}
+                      </div>
                     </div>
-                  ) : (
-                    activeRows.map((row) => (
-                      <ValidationRow
-                        key={row.rowKey}
-                        row={row}
-                        expanded={!!expandedRows[row.rowKey]}
-                        selectedFaces={selectedFaces[row.rowKey] || []}
-                        onToggle={() => toggleRow(row.rowKey)}
-                        onToggleFace={(record) => toggleFaceSelection(row, record)}
-                        isFaceSelected={(recordId) =>
-                          isFaceSelected(row.rowKey, recordId)
-                        }
-                        onVerify={() => openVerifyModal(row)}
-                        onGuest={() => openGuestModal(row)}
-                        onAddMember={() => openAddMemberModal(row)}
-                        onReject={() => openRejectModal(row)}
+                  )}
+
+                  {isLoadingSessionDetail && (
+                    <div className="flex min-h-[240px] items-center justify-center p-6">
+                      <div className="flex flex-col items-center gap-3 text-slate-400">
+                        <Loader2
+                          size={34}
+                          className="animate-spin text-indigo-500"
+                        />
+                        <p className="text-sm font-semibold">
+                          Memuat detail session...
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!isLoadingSessionDetail && !sessionDetailError && (
+                    <div className="space-y-5 p-4">
+                      <AmbiguousValidationPanel
+                        records={ambiguousRecords}
+                        pagination={ambiguousPagination}
+                        selectedRecordMap={selectedAmbiguousMap}
+                        selectedRecords={selectedAmbiguousRecords}
+                        isPageChanging={isPageChangingDetail}
+                        isSubmittingAction={isSubmittingAction}
+                        onChangePage={changeAmbiguousPage}
+                        onToggleRecord={toggleAmbiguousSelection}
+                        onSelectAllPage={toggleSelectAllAmbiguousPage}
+                        onClearSelected={clearSelectedAmbiguous}
+                        onVerify={openAmbiguousVerifyModal}
+                        onGuest={openAmbiguousGuestModal}
+                        onAddMember={openAmbiguousAddMemberModal}
+                        onReject={openAmbiguousRejectModal}
+                        onRefresh={refreshAmbiguousPage}
                         onPreviewImage={(image) => setPreviewImage(image)}
                       />
-                    ))
+
+                      {activeRows.length === 0 && activeAmbiguousTotal === 0 ? (
+                        <div className="flex items-center justify-center py-10 text-slate-400">
+                          <CheckCircle
+                            size={20}
+                            className="mr-2 text-emerald-500"
+                          />
+                          <span className="text-sm font-semibold">
+                            Tidak ada data pending di sesi ini.
+                          </span>
+                        </div>
+                      ) : (
+                        activeRows.length > 0 && (
+                          <div className="space-y-3">
+                            {activeRows.map((row) => (
+                              <ValidationRow
+                                key={row.rowKey}
+                                row={row}
+                                expanded={!!expandedRows[row.rowKey]}
+                                selectedFaces={selectedFaces[row.rowKey] || []}
+                                onToggle={() => toggleRow(row.rowKey)}
+                                onToggleFace={(record) =>
+                                  toggleFaceSelection(row, record)
+                                }
+                                isFaceSelected={(recordId) =>
+                                  isFaceSelected(row.rowKey, recordId)
+                                }
+                                onVerify={() => openVerifyModal(row)}
+                                onGuest={() => openGuestModal(row)}
+                                onAddMember={() => openAddMemberModal(row)}
+                                onReject={() => openRejectModal(row)}
+                                onPreviewImage={(image) =>
+                                  setPreviewImage(image)
+                                }
+                              />
+                            ))}
+                          </div>
+                        )
+                      )}
+                    </div>
                   )}
-                </div>
-              </section>
-            )}
-          </>
-        )}
+                </section>
+              )}
+            </>
+          )}
       </div>
 
       {/* Toast */}
@@ -1122,7 +1714,7 @@ export default function GuestValidation() {
         </div>
       )}
 
-      {/* Modals */}
+      {/* Verify Modal */}
       {modal?.type === "verify" && (
         <VerifyModal
           modal={modal}
@@ -1143,6 +1735,7 @@ export default function GuestValidation() {
         />
       )}
 
+      {/* Guest Modal */}
       {modal?.type === "guest" && (
         <GuestModal
           modal={modal}
@@ -1169,6 +1762,7 @@ export default function GuestValidation() {
         />
       )}
 
+      {/* Member Modal */}
       {modal?.type === "member" && (
         <MemberModal
           modal={modal}
@@ -1195,6 +1789,7 @@ export default function GuestValidation() {
         />
       )}
 
+      {/* Member single face confirmation */}
       {modal?.type === "member-single-face-confirm" && (
         <div className="gv-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
           <div className="gv-modal w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
@@ -1248,6 +1843,7 @@ export default function GuestValidation() {
         </div>
       )}
 
+      {/* Reject Modal */}
       {modal?.type === "reject" && (
         <RejectModal
           modal={modal}
@@ -1261,6 +1857,7 @@ export default function GuestValidation() {
         />
       )}
 
+      {/* Preview Modal */}
       {previewImage && (
         <FacePreviewModal
           image={previewImage.src}

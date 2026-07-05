@@ -19,7 +19,7 @@ from attendance.models import (
     WorshipSession,
 )
 
-from ..config import UNKNOWN_SAME_FACE_SIM
+from ..config import GUEST_SAME_FACE_SIM
 
 def ok_response(message="Success", data=None, status=200):
     payload = {
@@ -827,12 +827,6 @@ def validation_ai_reject_action(request):
       "session_id": 6,
       "record_ids": [61, 62, 63]
     }
-
-    Rules:
-    - Ambiguous: 1 record menjadi rejected.
-    - Unknown group: semua record dalam group menjadi rejected.
-    - face_image dan face_encoding dihapus.
-    - row tetap ada.
     """
 
     body = parse_body(request)
@@ -926,13 +920,7 @@ def validation_ai_reject_action(request):
             detection_statuses = {record.detection_status for record in records}
 
             if detection_statuses == {"ambiguous"}:
-                if len(records) != 1:
-                    return fail_response(
-                        "Reject ambiguous hanya boleh memproses 1 record.",
-                        status=400,
-                    )
-
-                mode = "ambiguous"
+                mode = "ambiguous_flat" if len(records) > 1 else "ambiguous"
 
             elif detection_statuses == {"unknown"}:
                 mode = "unknown_group"
@@ -1083,13 +1071,13 @@ def validation_ai_find_guest_by_ai_action(request):
                     message="Belum ada data tamu dengan face encoding yang bisa dibandingkan.",
                     data={
                         "found": False,
-                        "threshold": round(UNKNOWN_SAME_FACE_SIM * 100, 2),
+                        "threshold": round(GUEST_SAME_FACE_SIM * 100, 2),
                         "recommendation": None,
                     },
                     status=200,
                 )
 
-            is_match = best_similarity >= UNKNOWN_SAME_FACE_SIM
+            is_match = best_similarity >= GUEST_SAME_FACE_SIM
 
             return ok_response(
                 message=(
@@ -1099,7 +1087,7 @@ def validation_ai_find_guest_by_ai_action(request):
                 ),
                 data={
                     "found": is_match,
-                    "threshold": round(UNKNOWN_SAME_FACE_SIM * 100, 2),
+                    "threshold": round(GUEST_SAME_FACE_SIM * 100, 2),
                     "recommendation": serialize_guest_for_validation(
                         best_guest,
                         similarity=best_similarity,
@@ -1489,17 +1477,6 @@ def validation_ai_add_member_face_action(request):
         "address": "Jakarta"
       }
     }
-
-    Rules:
-    - Ambiguous:
-      hanya 1 record, otomatis boleh selected 1.
-    - Unknown group:
-      selected_record_ids minimal 1.
-      selected_record_ids[0] menjadi facedetection attendance.
-    - Semua selected record dibuatkan MemberFaceEmbedding.
-    - Semua selected record menjadi verified + final_member.
-    - Record lain dalam group menjadi rejected dan face data dibersihkan.
-    - Attendance dibuat/update untuk member memakai selected record pertama.
     """
 
     body = parse_body(request)
@@ -1599,24 +1576,13 @@ def validation_ai_add_member_face_action(request):
             detection_statuses = {record.detection_status for record in records}
 
             if detection_statuses == {"ambiguous"}:
-                if len(records) != 1:
-                    return fail_response(
-                        "Tambah wajah untuk ambiguous hanya boleh 1 record.",
-                        status=400,
-                    )
+                process_mode = "ambiguous_flat" if len(records) > 1 else "ambiguous"
 
-                process_mode = "ambiguous"
-
-                # Ambiguous tidak perlu pilih gambar dari frontend.
-                # Kalau frontend kosong, backend otomatis pakai record satu-satunya.
+                # Untuk ambiguous flat selected-mode:
+                # frontend mengirim record_ids = selected ids.
+                # Jika selected_record_ids kosong, backend pakai semua record_ids.
                 if len(clean_selected_record_ids) == 0:
-                    clean_selected_record_ids = [records[0].id]
-
-                if clean_selected_record_ids != [records[0].id]:
-                    return fail_response(
-                        "selected_record_ids untuk ambiguous harus berisi record ambiguous tersebut.",
-                        status=400,
-                    )
+                    clean_selected_record_ids = [record.id for record in records]
 
             elif detection_statuses == {"unknown"}:
                 process_mode = "unknown_group"
@@ -1687,12 +1653,6 @@ def validation_ai_add_member_face_action(request):
             # yang akan masuk ke Attendance.facedetection.
             attendance_record = selected_records[0]
 
-            # Simpan semua selected image ke MemberFaceEmbedding dulu.
-            embeddings = create_member_face_embeddings(
-                member=member,
-                selected_records=selected_records,
-            )
-
             attendance, attendance_error = create_or_update_member_attendance(
                 session=session,
                 member=member,
@@ -1709,6 +1669,13 @@ def validation_ai_add_member_face_action(request):
                         "attendance_record_id": attendance_record.id,
                     },
                 )
+            
+            # Simpan semua selected image ke MemberFaceEmbedding dulu.
+            embeddings = create_member_face_embeddings(
+                member=member,
+                selected_records=selected_records,
+            )
+
 
             validated_at = timezone.now()
 

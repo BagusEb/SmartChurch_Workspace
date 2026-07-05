@@ -1,3 +1,5 @@
+//smartchurch_frontend\src\components\validationRegistration\RegistrationRow.jsx
+
 import {
   Check,
   ChevronDown,

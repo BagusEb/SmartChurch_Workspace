@@ -1,0 +1,164 @@
+{
+  "tested_at": "2026-07-02T19:51:09",
+  "rtsp_url_safe": "rtsp://admin:***@192.168.1.64:280/Streaming/Channels/102",
+  "duration_seconds": 30.164,
+  "reported": {
+    "width": 1920,
+    "height": 536,
+    "fps": 10.0,
+    "fourcc": "h264"
+  },
+  "actual": {
+    "successful_frames": 301,
+    "failed_reads": 0,
+    "total_reads": 301,
+    "actual_fps": 9.979,
+    "frame_width": 1920,
+    "frame_height": 536,
+    "channels": 3,
+    "raw_frame_mb": 2.944,
+    "raw_throughput_mb_s": 29.381
+  },
+  "latency_ms": {
+    "read_avg": 95.704,
+    "read_min": 13.846,
+    "read_max": 197.762,
+    "read_p95": 174.398,
+    "inter_frame_gap_avg": 100.055,
+    "inter_frame_gap_min": 18.879,
+    "inter_frame_gap_max": 200.754,
+    "inter_frame_gap_p95": 178.778
+  },
+  "duplicate_estimate": {
+    "unique_hash_count": 108,
+    "duplicate_estimate": 193,
+    "duplicate_ratio": 0.6412
+  },
+  "per_second_fps": [
+    {
+      "second": 0,
+      "frames": 9
+    },
+    {
+      "second": 1,
+      "frames": 11
+    },
+    {
+      "second": 2,
+      "frames": 9
+    },
+    {
+      "second": 3,
+      "frames": 11
+    },
+    {
+      "second": 4,
+      "frames": 9
+    },
+    {
+      "second": 5,
+      "frames": 10
+    },
+    {
+      "second": 6,
+      "frames": 10
+    },
+    {
+      "second": 7,
+      "frames": 10
+    },
+    {
+      "second": 8,
+      "frames": 10
+    },
+    {
+      "second": 9,
+      "frames": 11
+    },
+    {
+      "second": 10,
+      "frames": 9
+    },
+    {
+      "second": 11,
+      "frames": 11
+    },
+    {
+      "second": 12,
+      "frames": 9
+    },
+    {
+      "second": 13,
+      "frames": 10
+    },
+    {
+      "second": 14,
+      "frames": 10
+    },
+    {
+      "second": 15,
+      "frames": 10
+    },
+    {
+      "second": 16,
+      "frames": 10
+    },
+    {
+      "second": 17,
+      "frames": 11
+    },
+    {
+      "second": 18,
+      "frames": 9
+    },
+    {
+      "second": 19,
+      "frames": 10
+    },
+    {
+      "second": 20,
+      "frames": 10
+    },
+    {
+      "second": 21,
+      "frames": 11
+    },
+    {
+      "second": 22,
+      "frames": 9
+    },
+    {
+      "second": 23,
+      "frames": 11
+    },
+    {
+      "second": 24,
+      "frames": 9
+    },
+    {
+      "second": 25,
+      "frames": 10
+    },
+    {
+      "second": 26,
+      "frames": 10
+    },
+    {
+      "second": 27,
+      "frames": 11
+    },
+    {
+      "second": 28,
+      "frames": 9
+    },
+    {
+      "second": 29,
+      "frames": 11
+    },
+    {
+      "second": 30,
+      "frames": 1
+    }
+  ],
+  "sample_path": null
+}

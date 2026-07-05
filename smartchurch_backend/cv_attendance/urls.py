@@ -1,20 +1,23 @@
-# cv_attandance/urls.py
+#smartchurch_backend\cv_attendance\urls.py
 
 from django.urls import path
 
 from .views.viewscvAttendance import (
-    video_feed,
     start_session,
+    start_attendance_session,
     stop_session,
     detection_log,
     session_status,
     session_attendance_result,
     start_registration,
     stop_registration,
+    open_camera_monitor,
+    close_camera_monitor,
+    camera_monitor_status,
 )
 
 from .views.viewsValidationregistration import (
-    registration_validation_groups,
+    registration_validation_faces,
     registration_member_data,
     registration_assign_member_faces_action,
     registration_reject_faces_action,
@@ -33,12 +36,24 @@ from .views.viewsValidationaction import (
     validation_ai_confirm_guest_action,
     validation_ai_add_member_face_action,
 )
+
+from .views.viewsCameraConfig import (
+    open_camera_configurator,
+    camera_configurator_status,
+)
+
 app_name = "cv_attendance"
 
 urlpatterns = [
     path("cv/start/", start_session, name="cv_start"),
+
+    path(
+        "cv/attendance/start/",
+        start_attendance_session,
+        name="cv_attendance_start",
+    ),
+    
     path("cv/stop/", stop_session, name="cv_stop"),
-    path("cv/video/", video_feed, name="cv_video"),
     path("cv/logs/", detection_log, name="cv_logs"),
     path("cv/status/", session_status, name="cv_status"),
     path(
@@ -58,13 +73,11 @@ urlpatterns = [
         validation_ai_session_detail,
         name="validation_ai_session_detail",
     ),
-
     path(
         "cv/validation-ai/data-member-guest/",
         validation_ai_member_guest_data,
         name="validation_ai_member_guest_data",
     ),
-
     path(
         "cv/validation-ai/actions/verify/",
         validation_ai_verify_action,
@@ -91,6 +104,7 @@ urlpatterns = [
         name="validation_ai_add_member_face_action",
     ),
 
+    # ================= REGISTRATION SESSION =================
     path(
         "cv/registration/start/",
         start_registration,
@@ -103,11 +117,16 @@ urlpatterns = [
     ),
 
     # ================= VALIDATION REGISTRATION =================
+    # Endpoint baru: flat list + pagination.
     path(
-        "cv/validation-registration/groups/",
-        registration_validation_groups,
-        name="registration_validation_groups",
+        "cv/validation-registration/faces/",
+        registration_validation_faces,
+        name="registration_validation_faces",
     ),
+
+    # Endpoint lama tetap hidup untuk backward compatibility.
+    # Response-nya sekarang juga flat paginated, bukan grouping.
+
     path(
         "cv/validation-registration/members/",
         registration_member_data,
@@ -122,5 +141,24 @@ urlpatterns = [
         "cv/validation-registration/actions/reject/",
         registration_reject_faces_action,
         name="registration_reject_faces_action",
+    ),
+
+    path("cv/camera-config/open/", open_camera_configurator, name="open-camera-configurator"),
+    path("cv/camera-config/status/", camera_configurator_status, name="camera-configurator-status"),
+
+    path(
+    "cv/monitor/open/",
+    open_camera_monitor,
+    name="cv_monitor_open",
+    ),
+    path(
+        "cv/monitor/close/",
+        close_camera_monitor,
+        name="cv_monitor_close",
+    ),
+    path(
+        "cv/monitor/status/",
+        camera_monitor_status,
+        name="cv_monitor_status",
     ),
 ]

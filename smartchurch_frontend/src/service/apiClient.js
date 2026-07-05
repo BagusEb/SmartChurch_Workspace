@@ -93,7 +93,29 @@ apiClient.interceptors.response.use(
 export const loginUser = async (credentials) => await apiClient.post('/token/', credentials);
 
 // --- Video Feed ---
-export const getVideoFeedUrl = () => `${apiClient.defaults.baseURL}cv/video/`;
+export const openCameraMonitor = async () => {
+  const response = await apiClient.post(
+    '/cv/monitor/open/'
+  );
+
+  return response.data;
+};
+
+export const closeCameraMonitor = async () => {
+  const response = await apiClient.post(
+    '/cv/monitor/close/'
+  );
+
+  return response.data;
+};
+
+export const getCameraMonitorStatus = async () => {
+  const response = await apiClient.get(
+    '/cv/monitor/status/'
+  );
+
+  return response.data;
+};
 
 
 export const downloadFile = async (url, filename = 'download') => {
@@ -281,8 +303,19 @@ export const streamChatResponse = async ({ threadId, message }) => {
 };
 
 // --- CV Attendance Session API ---
-export const startSession = async (sessionName) => {
-  const res = await apiClient.post('/cv/start/', { session_name: sessionName });
+export const startAttendanceSession = async (sessionName) => {
+  const res = await apiClient.post('/cv/attendance/start/', {
+    session_name: sessionName,
+  });
+
+  return res.data;
+};
+
+export const startRegistrationSession = async (registrationName) => {
+  const res = await apiClient.post('/cv/registration/start/', {
+    registration_name: registrationName,
+  });
+
   return res.data;
 };
 
@@ -290,6 +323,8 @@ export const stopSession = async () => {
   const res = await apiClient.post('/cv/stop/');
   return res.data;
 };
+
+
 
 export const getDetectionLogs = async () => {
   const res = await apiClient.get('/cv/logs/');
@@ -370,8 +405,19 @@ export const addValidationAiMemberFace = async (payload) => {
 };
 
 // --- Validation Registration API ---
-export const getRegistrationValidationGroups = async () => {
-  const response = await apiClient.get('/cv/validation-registration/groups/');
+export const getRegistrationValidationFaces = async ({
+  page = 1,
+  pageSize = 20,
+  includeEncoding = false,
+} = {}) => {
+  const response = await apiClient.get('/cv/validation-registration/faces/', {
+    params: {
+      page,
+      page_size: pageSize,
+      include_encoding: includeEncoding ? 'true' : 'false',
+    },
+  });
+
   return response.data;
 };
 
@@ -398,5 +444,15 @@ export const rejectRegistrationFaces = async (payload) => {
   );
   return response.data;
 };
+
+export async function openCameraConfigurator() {
+  const response = await apiClient.post("/cv/camera-config/open/");
+  return response.data;
+}
+
+export async function getCameraConfiguratorStatus() {
+  const response = await apiClient.get("/cv/camera-config/status/");
+  return response.data;
+}
 
 export default apiClient;

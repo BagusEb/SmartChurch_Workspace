@@ -1,57 +1,100 @@
 # cv_attendance/vision/face_validator.py
-from ..config import (                          # ← relative
+from ..config import (
     MATCH_THRESHOLD_KNOWN,
-    MATCH_THRESHOLD_AMBIGUOUS,
     MIN_DETECTION_SCORE,
+    MIN_FACE_SIZE_FOR_RECOGNITION,
 )
-from ..utils.logger import get_logger           # ← relative
+from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-_MIN_SIZE_FOR_KNOWN = 10
 
 
 class FaceValidator:
     @staticmethod
-    def classify(similarity: float, det_score: float, face_size: int) -> str:
+    def classify(
+        similarity: float,
+        det_score: float,
+        face_size: int,
+    ) -> str:
         """
         Return: "KNOWN" | "AMBIGUOUS" | "UNKNOWN"
+
+        AMBIGUOUS:
+            Wajah terdeteksi, tetapi bukti deteksinya belum cukup
+            untuk proses recognition karena detection score rendah
+            atau ukuran wajah terlalu kecil.
+
+        UNKNOWN:
+            Wajah cukup layak diproses, tetapi similarity belum
+            mencapai threshold untuk dikenali sebagai member.
+
+        KNOWN:
+            Wajah cukup layak diproses dan similarity mencapai
+            threshold pengenalan member.
         """
+
         if det_score < MIN_DETECTION_SCORE:
-            logger.debug(f"AMBIGUOUS: det_score rendah ({det_score:.2f})")
+            logger.debug(
+                f"AMBIGUOUS: detection score rendah "
+                f"({det_score:.2f})"
+            )
             return "AMBIGUOUS"
 
-        if face_size < _MIN_SIZE_FOR_KNOWN:
-            logger.debug(f"AMBIGUOUS: wajah kecil ({face_size}px)")
+        if face_size < MIN_FACE_SIZE_FOR_RECOGNITION:
+            logger.debug(
+                f"AMBIGUOUS: wajah terlalu kecil "
+                f"({face_size}px)"
+            )
             return "AMBIGUOUS"
 
-        if similarity >= MATCH_THRESHOLD_KNOWN:
-            logger.debug(f"KNOWN: sim={similarity:.3f}")
-            return "KNOWN"
-
-        if similarity >= MATCH_THRESHOLD_AMBIGUOUS:
-            logger.debug(f"UNKNOWN: sim sedang ({similarity:.3f})")
+        if similarity < MATCH_THRESHOLD_KNOWN:
+            logger.debug(
+                f"UNKNOWN: similarity belum mencapai threshold "
+                f"({similarity:.3f})"
+            )
             return "UNKNOWN"
 
-        logger.debug(f"AMBIGUOUS: sim rendah ({similarity:.3f})")
-        return "AMBIGUOUS"
+        logger.debug(
+            f"KNOWN: similarity memenuhi threshold "
+            f"({similarity:.3f})"
+        )
+        return "KNOWN"
 
     @staticmethod
-    def get_display_name(status: str, member_name: str) -> str:
+    def get_display_name(
+        status: str,
+        member_name: str,
+    ) -> str:
         if status == "KNOWN":
             return member_name
-        elif status == "UNKNOWN":
+
+        if status == "UNKNOWN":
             return "Unknown"
+
         return "AMBIGUOUS"
 
     @staticmethod
-    def get_reason(similarity: float, det_score: float, face_size: int) -> str:
+    def get_reason(
+        similarity: float,
+        det_score: float,
+        face_size: int,
+    ) -> str:
         if det_score < MIN_DETECTION_SCORE:
-            return f"Kualitas deteksi rendah ({det_score:.0%})"
-        if face_size < _MIN_SIZE_FOR_KNOWN:
-            return f"Wajah terlalu kecil ({face_size}px)"
-        if similarity < MATCH_THRESHOLD_AMBIGUOUS:
-            return f"Similarity sangat rendah ({similarity:.0%})"
+            return (
+                f"Kualitas deteksi rendah "
+                f"({det_score:.0%})"
+            )
+
+        if face_size < MIN_FACE_SIZE_FOR_RECOGNITION:
+            return (
+                f"Wajah terlalu kecil "
+                f"({face_size}px)"
+            )
+
         if similarity < MATCH_THRESHOLD_KNOWN:
-            return f"Similarity tidak cukup ({similarity:.0%})"
+            return (
+                f"Similarity rendah "
+                f"({similarity:.0%})"
+            )
+
         return "OK"

@@ -18,7 +18,13 @@ from attendance.models import (
     MemberFaceEmbedding,
 )
 
-from ..config import UNKNOWN_SAME_FACE_SIM
+from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
+
+from ..config import (
+    UNKNOWN_SAME_FACE_SIM,
+    UNKNOWN_GROUPING_SIM,
+    AMBIGUOUS_VALIDATION_PAGE_SIZE,
+)
 
 
 # ============================================================
@@ -46,6 +52,29 @@ def safe_float(value):
         return float(value)
     except Exception:
         return None
+
+def safe_int(value, default=1, min_value=None, max_value=None):
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = default
+
+    if min_value is not None and parsed < min_value:
+        parsed = min_value
+
+    if max_value is not None and parsed > max_value:
+        parsed = max_value
+
+    return parsed
+
+
+def bool_query(request, key, default=True):
+    raw = request.GET.get(key)
+
+    if raw is None:
+        return default
+
+    return str(raw).strip().lower() in ["true", "1", "yes", "on"]
 
 def normalize_text(value):
     return (value or "").strip()
@@ -323,7 +352,7 @@ def group_unknown_records(records, threshold=None, include_encoding=False):
     """
 
     if threshold is None:
-        threshold = UNKNOWN_SAME_FACE_SIM
+        threshold = UNKNOWN_GROUPING_SIM
 
     groups = []
 
@@ -474,29 +503,12 @@ def get_pending_records_for_session(session):
 # ============================================================
 # Helper: serialize session + data validasi
 # ============================================================
-def build_session_validation_payload(session, include_encoding=False):
+def build_session_summary_payload(session):
     pending_records = get_pending_records_for_session(session)
 
-    unknown_records = [
-        record for record in pending_records
-        if record.detection_status == "unknown"
-    ]
-
-    ambiguous_records = [
-        record for record in pending_records
-        if record.detection_status == "ambiguous"
-    ]
-
-    unknown_groups = group_unknown_records(
-        unknown_records,
-        threshold=UNKNOWN_SAME_FACE_SIM,
-        include_encoding=include_encoding,
-    )
-
-    ambiguous_items = [
-        serialize_timeline_record(record, include_encoding)
-        for record in ambiguous_records
-    ]
+    unknown_count = pending_records.filter(detection_status="unknown").count()
+    ambiguous_count = pending_records.filter(detection_status="ambiguous").count()
+    total_pending = unknown_count + ambiguous_count
 
     return {
         "session": {
@@ -508,15 +520,114 @@ def build_session_validation_payload(session, include_encoding=False):
             "status": session.status,
         },
         "summary": {
-            "total_pending": len(unknown_records) + len(ambiguous_records),
-            "total_unknown_records": len(unknown_records),
-            "total_unknown_people_groups": len(unknown_groups),
-            "total_ambiguous_records": len(ambiguous_records),
+            "total_pending": total_pending,
+            "total_unknown_records": unknown_count,
+            "total_unknown_people_groups": None,
+            "total_ambiguous_records": ambiguous_count,
         },
-        "unknown_people_groups": unknown_groups,
-        "ambiguous_records": ambiguous_items,
+
+        # Penting: halaman awal tidak membawa image base64.
+        "unknown_people_groups": [],
+        "ambiguous_records": [],
+        "ambiguous_pagination": {
+            "page": 1,
+            "page_size": AMBIGUOUS_VALIDATION_PAGE_SIZE,
+            "total_items": ambiguous_count,
+            "total_pages": 1,
+            "has_next": False,
+            "has_previous": False,
+            "next_page": None,
+            "previous_page": None,
+        },
     }
 
+def build_session_validation_payload(
+    session,
+    include_encoding=False,
+    ambiguous_page=1,
+    ambiguous_page_size=None,
+    include_unknown=True,
+    include_ambiguous=True,
+):
+    if ambiguous_page_size is None:
+        ambiguous_page_size = AMBIGUOUS_VALIDATION_PAGE_SIZE
+
+    ambiguous_page = safe_int(
+        ambiguous_page,
+        default=1,
+        min_value=1,
+    )
+
+    ambiguous_page_size = safe_int(
+        ambiguous_page_size,
+        default=AMBIGUOUS_VALIDATION_PAGE_SIZE,
+        min_value=1,
+        max_value=50,
+    )
+
+    pending_records = get_pending_records_for_session(session)
+
+    unknown_qs = pending_records.filter(detection_status="unknown")
+    ambiguous_qs = pending_records.filter(detection_status="ambiguous")
+
+    total_unknown_records = unknown_qs.count()
+    total_ambiguous_records = ambiguous_qs.count()
+
+    unknown_groups = []
+
+    if include_unknown:
+        unknown_records = list(unknown_qs.order_by("capture_time", "id"))
+
+        unknown_groups = group_unknown_records(
+            unknown_records,
+            threshold=UNKNOWN_GROUPING_SIM,
+            include_encoding=include_encoding,
+        )
+
+    ambiguous_records = []
+    paginator = Paginator(ambiguous_qs.order_by("capture_time", "id"), ambiguous_page_size)
+
+    try:
+        page_obj = paginator.page(ambiguous_page)
+    except PageNotAnInteger:
+        page_obj = paginator.page(1)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages if paginator.num_pages else 1)
+
+    if include_ambiguous:
+        ambiguous_records = [
+            serialize_timeline_record(record, include_encoding)
+            for record in page_obj.object_list
+        ]
+
+    return {
+        "session": {
+            "id": session.id,
+            "session_name": session.session_name,
+            "date": session.date.isoformat() if session.date else None,
+            "start_time": session.start_time.isoformat() if session.start_time else None,
+            "end_time": session.end_time.isoformat() if session.end_time else None,
+            "status": session.status,
+        },
+        "summary": {
+            "total_pending": total_unknown_records + total_ambiguous_records,
+            "total_unknown_records": total_unknown_records,
+            "total_unknown_people_groups": len(unknown_groups) if include_unknown else None,
+            "total_ambiguous_records": total_ambiguous_records,
+        },
+        "unknown_people_groups": unknown_groups,
+        "ambiguous_records": ambiguous_records,
+        "ambiguous_pagination": {
+            "page": page_obj.number,
+            "page_size": ambiguous_page_size,
+            "total_items": total_ambiguous_records,
+            "total_pages": paginator.num_pages,
+            "has_next": page_obj.has_next(),
+            "has_previous": page_obj.has_previous(),
+            "next_page": page_obj.next_page_number() if page_obj.has_next() else None,
+            "previous_page": page_obj.previous_page_number() if page_obj.has_previous() else None,
+        },
+    }
 
 # ============================================================
 # GET /api/cv/validation-ai/sessions/
@@ -525,25 +636,21 @@ def build_session_validation_payload(session, include_encoding=False):
 @require_http_methods(["GET"])
 def validation_ai_sessions(request):
     """
-    Dipakai saat halaman Validasi AI pertama kali dibuka.
+    GET /api/cv/validation-ai/sessions/
 
-    Response:
-    {
-        "success": true,
-        "count": 2,
-        "sessions": [
-            {
-                "session": {...},
-                "summary": {...},
-                "unknown_people_groups": [...],
-                "ambiguous_records": [...]
-            }
-        ]
-    }
+    Default:
+    - hanya summary
+    - tidak kirim face image
+    - ringan untuk page awal
+
+    Optional:
+    ?detail=true
+    untuk backward compatibility jika butuh response lama.
     """
 
     try:
         include_encoding = request.GET.get("include_encoding", "false").lower() == "true"
+        load_detail = request.GET.get("detail", "false").lower() == "true"
 
         sessions = (
             WorshipSession.objects
@@ -559,10 +666,18 @@ def validation_ai_sessions(request):
             if not pending_records.exists():
                 continue
 
-            payload = build_session_validation_payload(
-                session,
-                include_encoding=include_encoding,
-            )
+            if load_detail:
+                payload = build_session_validation_payload(
+                    session,
+                    include_encoding=include_encoding,
+                    ambiguous_page=1,
+                    ambiguous_page_size=AMBIGUOUS_VALIDATION_PAGE_SIZE,
+                    include_unknown=True,
+                    include_ambiguous=True,
+                )
+            else:
+                payload = build_session_summary_payload(session)
+
             result.append(payload)
 
         return JsonResponse(
@@ -583,8 +698,7 @@ def validation_ai_sessions(request):
             },
             status=500,
         )
-
-
+    
 # ============================================================
 # GET /api/cv/validation-ai/sessions/<session_id>/
 # Menampilkan detail validasi untuk 1 WorshipSession
@@ -592,11 +706,35 @@ def validation_ai_sessions(request):
 @require_http_methods(["GET"])
 def validation_ai_session_detail(request, session_id):
     """
-    Dipakai kalau frontend mau buka detail satu session saja.
+    GET /api/cv/validation-ai/sessions/<session_id>/
+
+    Query:
+    ?ambiguous_page=1
+    ?ambiguous_page_size=50
+    ?include_unknown=true
+    ?include_ambiguous=true
+
+    Dipanggil hanya saat card session dibuka.
     """
 
     try:
         include_encoding = request.GET.get("include_encoding", "false").lower() == "true"
+
+        ambiguous_page = safe_int(
+            request.GET.get("ambiguous_page", 1),
+            default=1,
+            min_value=1,
+        )
+
+        ambiguous_page_size = safe_int(
+            request.GET.get("ambiguous_page_size", AMBIGUOUS_VALIDATION_PAGE_SIZE),
+            default=AMBIGUOUS_VALIDATION_PAGE_SIZE,
+            min_value=1,
+            max_value=50,
+        )
+
+        include_unknown = bool_query(request, "include_unknown", True)
+        include_ambiguous = bool_query(request, "include_ambiguous", True)
 
         try:
             session = WorshipSession.objects.get(id=session_id)
@@ -632,6 +770,16 @@ def validation_ai_session_detail(request, session_id):
                     },
                     "unknown_people_groups": [],
                     "ambiguous_records": [],
+                    "ambiguous_pagination": {
+                        "page": 1,
+                        "page_size": ambiguous_page_size,
+                        "total_items": 0,
+                        "total_pages": 1,
+                        "has_next": False,
+                        "has_previous": False,
+                        "next_page": None,
+                        "previous_page": None,
+                    },
                 },
                 status=200,
             )
@@ -639,6 +787,10 @@ def validation_ai_session_detail(request, session_id):
         payload = build_session_validation_payload(
             session,
             include_encoding=include_encoding,
+            ambiguous_page=ambiguous_page,
+            ambiguous_page_size=ambiguous_page_size,
+            include_unknown=include_unknown,
+            include_ambiguous=include_ambiguous,
         )
 
         return JsonResponse(
@@ -658,7 +810,7 @@ def validation_ai_session_detail(request, session_id):
             },
             status=500,
         )
-    
+        
 # ============================================================
 # GET /api/cv/validation-ai/data-member-guest/
 # Data pendukung untuk pencarian member dan guest di frontend

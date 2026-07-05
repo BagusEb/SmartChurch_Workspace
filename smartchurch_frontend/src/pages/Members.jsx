@@ -5,8 +5,8 @@
 // ============================================================
 
 // ── Core React hooks
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { getAllMembers, createMember, updateMember, deleteMember, getMemberPhotos } from '../service/apiClient';
+import { createElement, useState, useEffect, useCallback, useMemo } from 'react';
+import { getAllMembers, createMember, updateMember, deleteMember, getMemberPhotos, deleteMemberPhoto } from '../service/apiClient';
 
 import {
   Pencil, Trash2, Plus, Eye, X, Users, Search,
@@ -65,6 +65,9 @@ export default function Members() {
   const [isPhotosLoading, setIsPhotosLoading] = useState(false);
   const [photoPage, setPhotoPage] = useState(1);
   const [photoPagination, setPhotoPagination] = useState(null);
+  const [isPhotoDeleteModalOpen, setIsPhotoDeleteModalOpen] = useState(false);
+  const [deletingPhoto, setDeletingPhoto] = useState(null);
+  const [isDeletingPhoto, setIsDeletingPhoto] = useState(false);
 
   // Form fields — mirrors the API payload structure
   const [formData, setFormData] = useState({
@@ -79,7 +82,7 @@ export default function Members() {
   });
 
   // Tracks whether any modal is currently open (used for the shared Escape-key listener)
-  const isAnyModalOpen = isModalOpen || isViewModalOpen || isDeleteModalOpen;
+  const isAnyModalOpen = isModalOpen || isViewModalOpen || isDeleteModalOpen || isPhotoDeleteModalOpen;
 
   // ============================================================
   //  API FUNCTIONS
@@ -139,10 +142,20 @@ export default function Members() {
 
   // Closes whichever modal is currently open (used by the Escape key + backdrop click)
   const closeActiveModal = useCallback(() => {
-    if (isModalOpen) setIsModalOpen(false);
+    if (isPhotoDeleteModalOpen) {
+      setIsPhotoDeleteModalOpen(false);
+      return;
+    }
+    if (isDeleteModalOpen) {
+      setIsDeleteModalOpen(false);
+      return;
+    }
+    if (isModalOpen) {
+      setIsModalOpen(false);
+      return;
+    }
     if (isViewModalOpen) setIsViewModalOpen(false);
-    if (isDeleteModalOpen) setIsDeleteModalOpen(false);
-  }, [isModalOpen, isViewModalOpen, isDeleteModalOpen]);
+  }, [isModalOpen, isViewModalOpen, isDeleteModalOpen, isPhotoDeleteModalOpen]);
 
   // Allows dismissing any open modal with the Escape key
   useEffect(() => {
@@ -248,6 +261,39 @@ export default function Members() {
       alert("Failed to delete member.");
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const openPhotoDeleteModal = (photo) => {
+    setDeletingPhoto(photo);
+    setIsPhotoDeleteModalOpen(true);
+  };
+
+  const closePhotoDeleteModal = () => {
+    if (isDeletingPhoto) return;
+    setIsPhotoDeleteModalOpen(false);
+    setDeletingPhoto(null);
+  };
+
+  const handleDeletePhoto = async () => {
+    if (!deletingPhoto) return;
+
+    setIsDeletingPhoto(true);
+    try {
+      await deleteMemberPhoto(deletingPhoto.id);
+      setIsPhotoDeleteModalOpen(false);
+      setDeletingPhoto(null);
+
+      if (photos.length === 1 && photoPage > 1) {
+        setPhotoPage(prevPage => prevPage - 1);
+      } else {
+        await fetchMemberPhotos();
+      }
+    } catch (error) {
+      console.error("Failed to delete member photo:", error);
+      alert("Failed to delete photo.");
+    } finally {
+      setIsDeletingPhoto(false);
     }
   };
 
@@ -565,7 +611,7 @@ export default function Members() {
 
             {/* Status filter chips — narrows the table to active / inactive / all */}
             <div className="flex items-center gap-2">
-              {statusChips.map(({ key, label, icon: Icon, count }) => {
+              {statusChips.map(({ key, label, icon, count }) => {
                 const isActive = statusFilter === key;
                 const activeClass = key === 'all' ? 'chip-active-all' : key === 'active' ? 'chip-active-active' : 'chip-active-inactive';
                 return (
@@ -574,7 +620,7 @@ export default function Members() {
                     onClick={() => setStatusFilter(key)}
                     className={`chip flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg ${isActive ? activeClass : 'chip-inactive'}`}
                   >
-                    <Icon size={12} strokeWidth={2.5} />
+                    {createElement(icon, { size: 12, strokeWidth: 2.5 })}
                     {label}
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20' : 'bg-slate-200/70'}`}>{count}</span>
                   </button>
@@ -987,12 +1033,22 @@ export default function Members() {
                     <div>
                       <div className="grid grid-cols-3 gap-2">
                         {photos.map(photo => (
-                          <img
-                            key={photo.id}
-                            src={`data:image/jpeg;base64,${photo.face_image_base64}`}
-                            alt={`Face enrollment ${photo.id}`}
-                            className="photo-thumb w-full h-full object-cover rounded-md aspect-square bg-slate-200"
-                          />
+                          <div key={photo.id} className="relative group aspect-square">
+                            <img
+                              src={`data:image/jpeg;base64,${photo.face_image_base64}`}
+                              alt={`Face enrollment ${photo.id}`}
+                              className="photo-thumb w-full h-full object-cover rounded-md bg-slate-200"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => openPhotoDeleteModal(photo)}
+                              className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-red-500 text-white shadow-md shadow-red-500/25 border-2 border-white flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-red-600 transition-all"
+                              aria-label="Hapus foto jemaat"
+                              title="Hapus foto"
+                            >
+                              <X size={13} strokeWidth={3} />
+                            </button>
+                          </div>
                         ))}
                       </div>
                       {/* Pagination for photos */}
@@ -1039,6 +1095,87 @@ export default function Members() {
                 </button>
               </div>
 
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================
+             PHOTO DELETE CONFIRMATION MODAL
+             Shown when isPhotoDeleteModalOpen is true.
+        ============================================================ */}
+        {isPhotoDeleteModalOpen && deletingPhoto && (
+          <div
+            className="modal-backdrop fixed inset-0 bg-slate-900/65 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+            onClick={closePhotoDeleteModal}
+          >
+            <div
+              className="modal-card bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+              onClick={stopPropagation}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-photo-modal-title"
+            >
+              <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                    <AlertTriangle size={18} className="text-red-500" />
+                  </div>
+                  <div>
+                    <h3 id="delete-photo-modal-title" className="font-display text-base font-bold text-slate-800">Hapus Foto</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Tindakan ini tidak dapat dibatalkan</p>
+                  </div>
+                </div>
+                <button
+                  onClick={closePhotoDeleteModal}
+                  disabled={isDeletingPhoto}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all flex-shrink-0 disabled:opacity-50"
+                  aria-label="Tutup"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-6 py-5">
+                <div className="flex items-center gap-4">
+                  <img
+                    src={`data:image/jpeg;base64,${deletingPhoto.face_image_base64}`}
+                    alt="Foto yang akan dihapus"
+                    className="w-20 h-20 rounded-xl object-cover bg-slate-200 flex-shrink-0"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">Apakah yakin ingin menghapus foto ini?</p>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      Foto wajah ini akan dihapus dari galeri jemaat.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl">
+                <button
+                  type="button"
+                  onClick={closePhotoDeleteModal}
+                  disabled={isDeletingPhoto}
+                  className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-all disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeletePhoto}
+                  disabled={isDeletingPhoto}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-all shadow-md disabled:opacity-70 min-w-[7rem]"
+                >
+                  {isDeletingPhoto ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" />
+                      Menghapus...
+                    </>
+                  ) : (
+                    "Delete"
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}

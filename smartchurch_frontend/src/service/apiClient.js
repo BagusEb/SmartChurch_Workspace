@@ -172,6 +172,7 @@ export const getMemberPhotos = async (memberId, page = 1) => {
   });
   return response.data;
 };
+export const deleteMemberPhoto = async (photoId) => await apiClient.delete(`/face-embeddings/${photoId}/`);
 export const createMember = async (payload) => { const response = await apiClient.post('/members/', payload); return response.data; };
 export const updateMember = async (id, payload) => await apiClient.put(`/members/${id}/`, payload);
 export const deleteMember = async (id) => await apiClient.delete(`/members/${id}/`);

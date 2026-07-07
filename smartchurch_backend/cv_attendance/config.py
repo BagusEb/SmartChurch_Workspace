@@ -138,6 +138,21 @@ MIN_FACE_SIZE_FOR_RECOGNITION = 18
 
 # ── ATTENDANCE TRACKER ────────────────────────────────────────
 TRACKER_IOU_THRESHOLD = 0.18
+TRACKER_MAX_CENTER_DISTANCE = 80
+TRACKER_MAX_LOST_SECONDS = 1.2
+
+# Recognition dimulai sejak observasi pertama agar track singkat tetap
+# memiliki evidence AMBIGUOUS/UNKNOWN yang dapat difinalisasi.
+MIN_TRACK_SEEN_COUNT_FOR_RECOGNITION = 1
+
+# Recognition tetap diulang selama track aktif, tetapi tidak setiap frame.
+RECOGNITION_RETRY_INTERVAL_AMBIGUOUS = 0.20
+RECOGNITION_RETRY_INTERVAL_UNKNOWN = 0.35
+RECOGNITION_RETRY_INTERVAL_KNOWN = 0.65
+
+# Retry dapat dilakukan lebih cepat ketika kualitas wajah meningkat.
+RECOGNITION_FORCE_SIZE_GROWTH_RATIO = 1.15
+RECOGNITION_FORCE_DET_SCORE_DELTA = 0.05
 
 # ── UNKNOWN/AMBIGUOUS TRACKING ────────────────────────────────
 # Berapa detik wajah unknown/ambiguous di-track di RAM sebelum expire

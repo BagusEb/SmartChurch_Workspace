@@ -128,13 +128,16 @@ GPU_DEVICE_ID = 0
 
 
 # DETEKSI WAJAH
-MIN_FACE_SIZE = 10  #ukuran berapa pixel agar wajah di proses testing 25  yah ntr ubah lagi makin kecil kalau tidak terdeteksi
+MIN_FACE_SIZE = 10  #ukuran berapa pixel agar wajah di terima testing 25  yah ntr ubah lagi makin kecil kalau tidak terdeteksi
 
 # ── ATTENDANCE MATCHING THRESHOLDS ────────────────────────────
 MATCH_THRESHOLD_KNOWN     = 0.45 #minimal kemiripan untuk dianggap KNOWN
 MIN_DETECTION_SCORE       = 0.20  #seberapa yakin dia itu wajah
 DETECTION_COOLDOWN        = 30    # detik cooldown untuk KNOWN (1 timeline row per window)
 MIN_FACE_SIZE_FOR_RECOGNITION = 18
+
+# ── ATTENDANCE TRACKER ────────────────────────────────────────
+TRACKER_IOU_THRESHOLD = 0.18
 
 # ── UNKNOWN/AMBIGUOUS TRACKING ────────────────────────────────
 # Berapa detik wajah unknown/ambiguous di-track di RAM sebelum expire

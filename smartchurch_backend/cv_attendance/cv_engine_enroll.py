@@ -194,9 +194,16 @@ class RegistrationSessionManager:
             "mode": "registration",
             "is_running": self.is_running,
             "registration_name": self.registration_name,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "started_at": (
+                self.started_at.isoformat()
+                if self.started_at
+                else None
+            ),
             "stats": self.stats,
             "db_queue_size": self.db_queue.qsize(),
+
+            # Debug RTSP dan sequence frame.
+            "camera": self.camera.get_status(),
         }
 
     def set_monitor_enabled(self, enabled: bool):
@@ -388,28 +395,49 @@ class RegistrationSessionManager:
             "[RegistrationCameraThread] Dimulai."
         )
 
+        # Sequence terakhir yang sudah diproses registration.
+        last_frame_sequence = None
+
         while self.is_running:
-            ok, frame = self.camera.read_frame()
-
-            if not ok or frame is None:
-                time.sleep(0.01)
-                continue
-
-            frame_ai = self._prepare_frame_for_ai(frame)
-
-            if frame_ai is None or frame_ai.size == 0:
-                continue
-
-            monitor_enabled = self.is_monitor_enabled()
-
-            annotated = (
-                frame_ai.copy()
-                if monitor_enabled
-                else None
-            )
-
             try:
-                faces = self.detector.detect(frame_ai)
+                ok, frame, frame_sequence = (
+                    self.camera.read_latest_frame(
+                        last_sequence=last_frame_sequence,
+
+                        # Tidak melakukan full-frame copy.
+                        copy_frame=False,
+
+                        # Tunggu frame baru tanpa membuat busy-loop.
+                        wait_timeout=0.25,
+                    )
+                )
+
+                if not ok or frame is None:
+                    continue
+
+                # Tandai sequence sudah diproses.
+                last_frame_sequence = frame_sequence
+
+                frame_ai = self._prepare_frame_for_ai(
+                    frame
+                )
+
+                if frame_ai is None or frame_ai.size == 0:
+                    continue
+
+                monitor_enabled = (
+                    self.is_monitor_enabled()
+                )
+
+                annotated = (
+                    frame_ai.copy()
+                    if monitor_enabled
+                    else None
+                )
+
+                faces = self.detector.detect(
+                    frame_ai
+                )
 
                 for face in faces:
                     det_score = float(
@@ -419,10 +447,12 @@ class RegistrationSessionManager:
                     if det_score < MIN_DETECTION_SCORE:
                         continue
 
+                    # Statistik ini sekarang menghitung detection
+                    # dari frame sequence yang unik.
                     self.stats["detected"] += 1
 
-                    saved_new_face = self._maybe_store_face(
-                        face
+                    saved_new_face = (
+                        self._maybe_store_face(face)
                     )
 
                     label = (
@@ -440,22 +470,22 @@ class RegistrationSessionManager:
                             "ENROLLING",
                         )
 
+                if annotated is not None:
+                    with self._frame_lock:
+                        self.latest_frame = annotated
+
             except Exception as exc:
                 logger.error(
                     "[RegistrationCameraThread] "
-                    f"Error: {exc}"
+                    f"Error pada frame sequence "
+                    f"{last_frame_sequence}: {exc}"
                 )
-
-            if annotated is not None:
-                with self._frame_lock:
-                    self.latest_frame = annotated
 
         self.set_monitor_enabled(False)
 
         logger.info(
             "[RegistrationCameraThread] Selesai."
         )
-
     def _maybe_store_face(self, face):
         """
         Simpan wajah jika ini track baru.

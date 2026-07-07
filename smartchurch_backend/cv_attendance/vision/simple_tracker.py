@@ -44,7 +44,7 @@ def center_distance(box_a, box_b):
 class SimpleFaceTracker:
     def __init__(
         self,
-        iou_threshold=0.25,
+        iou_threshold=0.18,
         max_center_distance=80,
         max_lost_seconds=1.0,
     ):

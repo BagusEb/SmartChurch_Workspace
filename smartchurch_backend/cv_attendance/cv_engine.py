@@ -45,6 +45,7 @@ from .config import (
     MIN_DETECTION_SCORE,
     RTSP_URL,
     SOURCE_DETECTION_CROP,
+    TRACKER_IOU_THRESHOLD,
 )
 from .utils.image_utils import draw_detection_label, encode_image_to_bytes
 from .utils.logger import get_logger
@@ -121,7 +122,7 @@ class SessionManager:
     @staticmethod
     def _new_tracker():
         return SimpleFaceTracker(
-            iou_threshold=0.25,
+            iou_threshold=TRACKER_IOU_THRESHOLD,
             max_center_distance=80,
             max_lost_seconds=1.2,
         )
@@ -384,6 +385,10 @@ class SessionManager:
             "session_name": self.current_session_name,
             "active_tracks": len(self.tracker.tracks),
             "seen_known_members": len(self._session_seen_members),
+
+            # Debug RTSP dan frame sequence.
+            # Frontend lama akan mengabaikan field tambahan ini.
+            "camera": self.camera.get_status(),
         }
 
     def set_monitor_enabled(self, enabled: bool):
@@ -501,6 +506,11 @@ class SessionManager:
     def _camera_loop(self):
         logger.info("[CameraThread] Dimulai.")
 
+        # Sequence terakhir yang sudah diproses attendance.
+        #
+        # None berarti camera thread belum pernah memproses frame.
+        last_frame_sequence = None
+
         while self.is_running:
             read_ms = 0.0
             prep_ms = 0.0
@@ -511,46 +521,102 @@ class SessionManager:
 
             try:
                 t0 = time.perf_counter()
-                ok, frame = self.camera.read_frame()
-                read_ms = (time.perf_counter() - t0) * 1000
 
+                ok, frame, frame_sequence = (
+                    self.camera.read_latest_frame(
+                        last_sequence=last_frame_sequence,
+
+                        # Tidak melakukan copy frame 5120x1440.
+                        # Aman karena pipeline tidak menggambar langsung
+                        # pada frame asli.
+                        copy_frame=False,
+
+                        # Menunggu frame baru tanpa busy-loop.
+                        wait_timeout=0.25,
+                    )
+                )
+
+                read_ms = (
+                    time.perf_counter() - t0
+                ) * 1000
+
+                # Tidak ada frame baru atau stream sedang berhenti.
                 if not ok or frame is None:
-                    time.sleep(0.01)
                     continue
 
+                # Tandai sequence ini sudah diambil untuk diproses.
+                #
+                # Harus dilakukan sebelum preprocessing agar frame yang
+                # sama tidak masuk lagi apabila terjadi error di tahap AI.
+                last_frame_sequence = frame_sequence
+
                 t0 = time.perf_counter()
-                frame_ai = self._prepare_frame_for_ai(frame)
-                prep_ms = (time.perf_counter() - t0) * 1000
+
+                frame_ai = self._prepare_frame_for_ai(
+                    frame
+                )
+
+                prep_ms = (
+                    time.perf_counter() - t0
+                ) * 1000
 
                 if frame_ai is None or frame_ai.size == 0:
                     continue
 
                 monitor_enabled = self.is_monitor_enabled()
-                annotated = frame_ai.copy() if monitor_enabled else None
+
+                # Hanya membuat annotated copy saat monitor benar-benar dibuka.
+                annotated = (
+                    frame_ai.copy()
+                    if monitor_enabled
+                    else None
+                )
 
                 t0 = time.perf_counter()
-                detections = self.detector.detect_boxes(frame_ai)
-                detect_ms = (time.perf_counter() - t0) * 1000
 
-                tracked_faces = self.tracker.update(detections)
+                detections = self.detector.detect_boxes(
+                    frame_ai
+                )
+
+                detect_ms = (
+                    time.perf_counter() - t0
+                ) * 1000
+
+                tracked_faces = self.tracker.update(
+                    detections
+                )
 
                 for tracked_face in tracked_faces:
                     track = tracked_face["track"]
                     track_id = tracked_face["track_id"]
 
-                    det_score = float(tracked_face.get("det_score") or 0.0)
+                    det_score = float(
+                        tracked_face.get("det_score") or 0.0
+                    )
 
                     if det_score < MIN_DETECTION_SCORE:
                         continue
 
-                    status = track.get("recognition_status") or "AMBIGUOUS"
-                    display_name = track.get("identity") or "TRACKING"
+                    status = (
+                        track.get("recognition_status")
+                        or "AMBIGUOUS"
+                    )
+
+                    display_name = (
+                        track.get("identity")
+                        or "TRACKING"
+                    )
+
                     similarity = float(
-                        track.get("recognition_similarity") or 0.0
+                        track.get(
+                            "recognition_similarity"
+                        )
+                        or 0.0
                     )
 
                     if not track.get("recognized"):
-                        # Tunggu beberapa frame agar track stabil.
+                        # seen_count sekarang hanya bertambah pada frame
+                        # dengan sequence unik.
                         if (
                             track.get("seen_count", 1)
                             < MIN_TRACK_SEEN_COUNT_FOR_RECOGNITION
@@ -568,14 +634,18 @@ class SessionManager:
 
                         t0 = time.perf_counter()
 
-                        embedding = self.detector.embed_detected_face(
-                            frame_ai,
-                            tracked_face,
+                        embedding = (
+                            self.detector.embed_detected_face(
+                                frame_ai,
+                                tracked_face,
+                            )
                         )
 
                         tracked_face["embedding"] = embedding
 
-                        match = self.matcher.match(embedding)
+                        match = self.matcher.match(
+                            embedding
+                        )
 
                         recognition_ms_total += (
                             time.perf_counter() - t0
@@ -583,16 +653,24 @@ class SessionManager:
 
                         status = FaceValidator.classify(
                             similarity=match["similarity"],
-                            det_score=tracked_face["det_score"],
-                            face_size=tracked_face["face_size"],
+                            det_score=tracked_face[
+                                "det_score"
+                            ],
+                            face_size=tracked_face[
+                                "face_size"
+                            ],
                         )
 
-                        display_name = FaceValidator.get_display_name(
-                            status,
-                            match["name"],
+                        display_name = (
+                            FaceValidator.get_display_name(
+                                status,
+                                match["name"],
+                            )
                         )
 
-                        similarity = float(match["similarity"] or 0.0)
+                        similarity = float(
+                            match["similarity"] or 0.0
+                        )
 
                         self.tracker.set_identity(
                             track_id=track_id,
@@ -610,10 +688,13 @@ class SessionManager:
                             display_name=display_name,
                         )
 
-                        self.tracker.mark_db_pushed(track_id)
+                        self.tracker.mark_db_pushed(
+                            track_id
+                        )
 
                     else:
-                        # Track lama cukup log throttled.
+                        # Track lama tidak embedding dan matching ulang.
+                        # Log hanya dikirim secara throttled.
                         if self.tracker.should_log(
                             track_id,
                             interval_seconds=1.5,
@@ -621,12 +702,23 @@ class SessionManager:
                             self._safe_queue_put(
                                 self.log_queue,
                                 {
-                                    "time": timezone.now().strftime("%H:%M:%S"),
+                                    "time": (
+                                        timezone.now()
+                                        .strftime("%H:%M:%S")
+                                    ),
                                     "name": display_name,
                                     "status": status,
-                                    "similarity": round(similarity, 3),
+                                    "similarity": round(
+                                        similarity,
+                                        3,
+                                    ),
                                     "is_update": True,
                                     "track_id": track_id,
+
+                                    # Debug internal.
+                                    "frame_sequence": (
+                                        frame_sequence
+                                    ),
                                 },
                                 "log_queue",
                             )
@@ -654,11 +746,15 @@ class SessionManager:
                 )
 
             except Exception as exc:
-                logger.error(f"[CameraThread] Error: {exc}")
+                logger.error(
+                    "[CameraThread] "
+                    f"Error pada frame sequence "
+                    f"{last_frame_sequence}: {exc}"
+                )
 
         self.set_monitor_enabled(False)
         logger.info("[CameraThread] Selesai.")
-
+        
     def _log_perf_if_needed(
         self,
         read_ms: float,

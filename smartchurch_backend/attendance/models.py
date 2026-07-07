@@ -150,7 +150,7 @@ class Guest(models.Model):
 
 
 class MemberFaceEmbedding(models.Model):
-    member = models.ForeignKey(Member, on_delete=models.CASCADE)
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, null=True, blank=True)
     face_encoding = (
         models.JSONField()
     )  # textfild kita ubah ke json fild, karena isinya langsung vector

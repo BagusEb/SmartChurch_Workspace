@@ -8,28 +8,13 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  backend:
-    build:
-      context: ./smartchurch_backend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    env_file: smartchurch_backend/.env
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-    ports:
-      - "8000:8000"
-    volumes:
-      - media_data:/app/media
-    depends_on:
-      db:
-        condition: service_healthy
 
   frontend:
     build:
@@ -39,8 +24,8 @@ services:
     ports:
       - "80:3000"
     depends_on:
-      - backend
+      db:
+        condition: service_healthy
 
 volumes:
   postgres_data:
-  media_data:

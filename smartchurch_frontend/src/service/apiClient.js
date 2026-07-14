@@ -342,13 +342,36 @@ export const getSessionAttendanceResult = async (sessionId) => {
   return res.data;
 };
 // --- Validation AI API ---
-export const getValidationAiSessions = async () => {
-  const response = await apiClient.get('/cv/validation-ai/sessions/');
+export const getValidationAiSessions = async ({ detail = false } = {}) => {
+  const response = await apiClient.get('/cv/validation-ai/sessions/', {
+    params: {
+      detail: detail ? 'true' : 'false',
+    },
+  });
+
   return response.data;
 };
 
-export const getValidationAiSessionDetail = async (sessionId) => {
-  const response = await apiClient.get(`/cv/validation-ai/sessions/${sessionId}/`);
+export const getValidationAiSessionDetail = async (
+  sessionId,
+  {
+    ambiguousPage = 1,
+    ambiguousPageSize = 50,
+    includeUnknown = true,
+    includeAmbiguous = true,
+    includeEncoding = false,
+  } = {}
+) => {
+  const response = await apiClient.get(`/cv/validation-ai/sessions/${sessionId}/`, {
+    params: {
+      ambiguous_page: ambiguousPage,
+      ambiguous_page_size: ambiguousPageSize,
+      include_unknown: includeUnknown ? 'true' : 'false',
+      include_ambiguous: includeAmbiguous ? 'true' : 'false',
+      include_encoding: includeEncoding ? 'true' : 'false',
+    },
+  });
+
   return response.data;
 };
 
@@ -408,7 +431,7 @@ export const addValidationAiMemberFace = async (payload) => {
 // --- Validation Registration API ---
 export const getRegistrationValidationFaces = async ({
   page = 1,
-  pageSize = 20,
+  pageSize = 50,
   includeEncoding = false,
 } = {}) => {
   const response = await apiClient.get('/cv/validation-registration/faces/', {

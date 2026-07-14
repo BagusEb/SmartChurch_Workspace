@@ -548,8 +548,10 @@ export function MemberModal({
               {selectedRecords?.length || 0} gambar akan ditambahkan
             </p>
             <p className="mt-1 text-xs leading-relaxed text-blue-700">
-              Semua gambar terpilih akan dibuat sebagai data aktif di Member Face Embedding.
-              Gambar pertama dari pilihan akan dipakai sebagai data attendance sesi ini.
+              Semua gambar terpilih akan dibuat sebagai data aktif di Member Face
+              Embedding. Jika jemaat belum memiliki attendance pada sesi ini, gambar
+              pertama akan dipakai sebagai evidence attendance. Jika jemaat sudah hadir,
+              attendance tidak akan diubah.
             </p>
           </div>
           <div className="rounded-2xl bg-slate-100 p-1">

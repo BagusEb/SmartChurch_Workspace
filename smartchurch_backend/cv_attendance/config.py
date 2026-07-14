@@ -23,13 +23,13 @@ CAMERA_RUNTIME_CONFIG_PATH = CAMERA_RUNTIME_DIR / "camera_runtime_config.json"
 def _load_camera_runtime_config():
     default_config = {
         "ENABLE_SOURCE_CROP": True,
-        "SOURCE_DETECTION_CROP": [1033, 275, 3058, 1286],
+        "SOURCE_DETECTION_CROP": [2924, 101, 5000, 1319],
 
         "ENABLE_AI_RESIZE": True,
-        "AI_FRAME_WIDTH": 640,
-        "AI_FRAME_HEIGHT": 360,
+        "AI_FRAME_WIDTH": 509,
+        "AI_FRAME_HEIGHT": 299,
 
-        "INSIGHTFACE_DET_SIZE": [640, 384],
+        "INSIGHTFACE_DET_SIZE": [512, 320],
     }
 
     if not CAMERA_RUNTIME_CONFIG_PATH.exists():
@@ -93,7 +93,7 @@ ENABLE_SOURCE_CROP = _to_bool(
 SOURCE_DETECTION_CROP = _to_tuple_int(
     _camera_runtime_config.get("SOURCE_DETECTION_CROP"),
     4,
-    (1033, 275, 3058, 1286),
+    (2924, 101, 5000, 1319),
 )
 
 ENABLE_AI_RESIZE = _to_bool(
@@ -103,18 +103,18 @@ ENABLE_AI_RESIZE = _to_bool(
 
 AI_FRAME_WIDTH = _to_int(
     _camera_runtime_config.get("AI_FRAME_WIDTH"),
-    640,
+    509,
 )
 
 AI_FRAME_HEIGHT = _to_int(
     _camera_runtime_config.get("AI_FRAME_HEIGHT"),
-    360,
+    299,
 )
 
 INSIGHTFACE_DET_SIZE = _to_tuple_int(
     _camera_runtime_config.get("INSIGHTFACE_DET_SIZE"),
     2,
-    (640, 384),
+    (512, 320),
 )
 
 
@@ -146,9 +146,9 @@ TRACKER_MAX_LOST_SECONDS = 1.2
 MIN_TRACK_SEEN_COUNT_FOR_RECOGNITION = 1
 
 # Recognition tetap diulang selama track aktif, tetapi tidak setiap frame.
-RECOGNITION_RETRY_INTERVAL_AMBIGUOUS = 0.20
+RECOGNITION_RETRY_INTERVAL_AMBIGUOUS = 0.20 #second
 RECOGNITION_RETRY_INTERVAL_UNKNOWN = 0.35
-RECOGNITION_RETRY_INTERVAL_KNOWN = 0.65
+RECOGNITION_RETRY_INTERVAL_KNOWN = 0.35
 
 # Retry dapat dilakukan lebih cepat ketika kualitas wajah meningkat.
 RECOGNITION_FORCE_SIZE_GROWTH_RATIO = 1.15

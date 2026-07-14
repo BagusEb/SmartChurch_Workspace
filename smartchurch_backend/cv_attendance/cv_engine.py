@@ -1,4 +1,4 @@
-# smartchurch_backend\cv_attendance\cv_engine.py
+# smartchurch_backend/cv_attendance/cv_engine.py
 
 """
 SessionManager — jantung sistem absensi SmartChurch.
@@ -197,31 +197,6 @@ class SessionManager:
         return session
 
     @staticmethod
-    def _prepopulate_attendance(worship_session) -> int:
-        from attendance.models import Attendance, Member
-
-        active_members = Member.objects.filter(member_status="active")
-
-        created = 0
-
-        for member in active_members:
-            _, was_created = Attendance.objects.get_or_create(
-                member=member,
-                session=worship_session,
-                defaults={},
-            )
-
-            if was_created:
-                created += 1
-
-        logger.info(
-            f"[SessionManager] Pre-populated {created} attendance rows "
-            f"untuk session_id={worship_session.id}"
-        )
-
-        return created
-
-    @staticmethod
     def _close_worship_session(session_id: int):
         from attendance.models import WorshipSession
 
@@ -292,13 +267,6 @@ class SessionManager:
             self.current_session_name = session_name
         except Exception as exc:
             return False, f"Gagal membuat Worship Session: {exc}"
-
-        try:
-            self._prepopulate_attendance(worship_session)
-        except Exception as exc:
-            logger.error(
-                f"[SessionManager] Pre-populate gagal non-fatal: {exc}"
-            )
 
         if not self.camera.open():
             self._close_worship_session(worship_session.id)
@@ -1001,6 +969,28 @@ class SessionManager:
         if queued:
             self.tracker.mark_db_pushed(track)
 
+        else:
+            if status == "KNOWN" and member_id is not None:
+                with self._session_seen_members_lock:
+                    current_entry = self._session_seen_members.get(
+                        member_id
+                    )
+
+                    if (
+                        current_entry
+                        and current_entry.get("timeline_id") is None
+                    ):
+                        self._session_seen_members.pop(
+                            member_id,
+                            None,
+                        )
+
+            logger.error(
+                "[TrackFinalizer] Gagal memasukkan event "
+                f"ke DB queue: track_id={track_id} | "
+                f"status={status} | member_id={member_id}"
+            )
+
     # ============================================================
     # DB writer thread
     # ============================================================
@@ -1138,21 +1128,37 @@ class SessionManager:
     @staticmethod
     def _save_detection_to_db(data: dict) -> int | None:
         """
-        Membuat satu TimelineDataRecord dari hasil final satu track.
+        Menyimpan satu hasil final track ke TimelineDataRecord.
 
-        capture_time selalu first_detected_at dari track.
-        Evidence selalu best_result dari track.
+        Flow attendance baru:
+        - KNOWN:
+            1. Buat TimelineDataRecord verified.
+            2. Buat Attendance untuk member yang benar-benar hadir.
+        - UNKNOWN / AMBIGUOUS:
+            1. Buat TimelineDataRecord pending.
+            2. Belum membuat Attendance.
         """
+
         from django.db import transaction
-        from attendance.models import Attendance, TimelineDataRecord
+        from attendance.models import (
+            Attendance,
+            TimelineDataRecord,
+            WorshipSession,
+        )
 
         capture_time = data["capture_time"]
-        member_id = data["matched_member_id"]
-        confidence = round(float(data["confidence_pct"]), 2)
-        status = data["status"]
+        member_id = data.get("matched_member_id")
+        confidence = round(
+            float(data.get("confidence_pct") or 0.0),
+            2,
+        )
+        status = str(data.get("status") or "").upper()
         session_id = data.get("session_id")
 
-        is_known = status == "KNOWN" and member_id is not None
+        is_known = (
+            status == "KNOWN"
+            and member_id is not None
+        )
 
         detection_status_map = {
             "KNOWN": "know",
@@ -1165,55 +1171,146 @@ class SessionManager:
             status.lower(),
         )
 
+        if is_known and not session_id:
+            logger.error(
+                "[DBWriter] KNOWN tidak dapat disimpan karena "
+                "session_id kosong."
+            )
+            return None
+
         try:
             with transaction.atomic():
                 timeline = TimelineDataRecord.objects.create(
                     capture_time=capture_time,
-                    face_image=data["face_image_bytes"],
-                    face_encoding=data["face_encoding"],
+                    face_image=data.get("face_image_bytes"),
+                    face_encoding=data.get("face_encoding"),
                     detection_status=detection_status_db,
                     confidence=confidence,
                     matched_member_id=member_id,
                     validation_status=(
-                        "verified" if is_known else "pending"
+                        "verified"
+                        if is_known
+                        else "pending"
                     ),
                     validated_at=(
-                        capture_time if is_known else None
+                        capture_time
+                        if is_known
+                        else None
                     ),
                     final_member_id=(
-                        member_id if is_known else None
+                        member_id
+                        if is_known
+                        else None
                     ),
+                    final_guest=None,
+                    notes="",
                 )
 
-                if is_known and session_id:
-                    updated_rows = Attendance.objects.filter(
-                        member_id=member_id,
-                        session_id=session_id,
-                        attendance_date__isnull=True,
-                    ).update(
-                        attendance_date=capture_time.date(),
-                        check_in_time=capture_time,
-                        confidence=confidence,
-                        facedetection_id=timeline.id,
+                # ======================================================
+                # KNOWN: langsung buat Attendance karena benar-benar hadir
+                # ======================================================
+                if is_known:
+                    worship_session = (
+                        WorshipSession.objects
+                        .select_for_update()
+                        .filter(id=session_id)
+                        .first()
                     )
 
-                    if updated_rows > 0:
-                        logger.info(
-                            f"[DBWriter] KNOWN check-in: "
-                            f"member_id={member_id} | "
-                            f"timeline_id={timeline.id} | "
-                            f"session_id={session_id} | "
-                            f"first_detected_at={capture_time.isoformat()}"
-                        )
-                    else:
-                        logger.debug(
-                            f"[DBWriter] KNOWN sudah hadir, "
-                            f"timeline tidak dihubungkan ulang: "
-                            f"member_id={member_id} | "
-                            f"timeline_id={timeline.id}"
+                    if not worship_session:
+                        raise ValueError(
+                            f"WorshipSession id={session_id} tidak ditemukan."
                         )
 
-                elif not is_known:
+                    existing_attendance = (
+                        Attendance.objects
+                        .select_for_update()
+                        .filter(
+                            session_id=session_id,
+                            member_id=member_id,
+                        )
+                        .first()
+                    )
+
+                    if existing_attendance:
+                        # Kondisi ini dapat terjadi karena:
+                        # - manual attendance;
+                        # - race condition;
+                        # - data lama;
+                        # - member sudah masuk sebelumnya.
+
+                        if existing_attendance.facedetection_id:
+                            existing_timeline_id = (
+                                existing_attendance.facedetection_id
+                            )
+
+                            # Timeline baru tidak perlu dibiarkan menjadi orphan.
+                            timeline.delete()
+
+                            logger.info(
+                                "[DBWriter] KNOWN duplicate dicegah: "
+                                f"member_id={member_id} | "
+                                f"session_id={session_id} | "
+                                f"existing_timeline_id={existing_timeline_id}"
+                            )
+
+                            return existing_timeline_id
+
+                        # Mendukung attendance manual/legacy yang belum memiliki
+                        # face detection, tetapi orangnya memang sudah hadir.
+                        existing_attendance.member_id = member_id
+                        existing_attendance.guest = None
+                        existing_attendance.facedetection = timeline
+                        existing_attendance.session_id = session_id
+                        existing_attendance.attendance_date = (
+                            capture_time.date()
+                        )
+                        existing_attendance.check_in_time = capture_time
+                        existing_attendance.confidence = confidence
+
+                        if not existing_attendance.notes:
+                            existing_attendance.notes = ""
+
+                        existing_attendance.save(
+                            update_fields=[
+                                "member",
+                                "guest",
+                                "facedetection",
+                                "session",
+                                "attendance_date",
+                                "check_in_time",
+                                "confidence",
+                                "notes",
+                            ]
+                        )
+
+                        attendance = existing_attendance
+
+                    else:
+                        attendance = Attendance.objects.create(
+                            member_id=member_id,
+                            guest=None,
+                            facedetection=timeline,
+                            session_id=session_id,
+                            attendance_date=capture_time.date(),
+                            check_in_time=capture_time,
+                            confidence=confidence,
+                            notes="",
+                        )
+
+                    logger.info(
+                        "[DBWriter] KNOWN attendance created: "
+                        f"attendance_id={attendance.id} | "
+                        f"member_id={member_id} | "
+                        f"timeline_id={timeline.id} | "
+                        f"session_id={session_id} | "
+                        f"first_detected_at={capture_time.isoformat()}"
+                    )
+
+                # ======================================================
+                # UNKNOWN / AMBIGUOUS belum masuk Attendance
+                # ======================================================
+                else:
                     logger.info(
                         f"[DBWriter] {status} finalized: "
                         f"timeline_id={timeline.id} | "
@@ -1222,7 +1319,7 @@ class SessionManager:
                         f"attempts={data.get('recognition_attempts')}"
                     )
 
-            return timeline.id
+                return timeline.id
 
         except Exception as exc:
             logger.error(

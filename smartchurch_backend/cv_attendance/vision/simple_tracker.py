@@ -1,3 +1,4 @@
+# smartchurch_backend\cv_attendance\vision\simple_tracker.py
 import time
 import uuid
 
@@ -65,9 +66,9 @@ class SimpleFaceTracker:
         max_center_distance=80,
         max_lost_seconds=1.2,
         min_seen_count_for_recognition=1,
-        ambiguous_retry_interval=0.30,
-        unknown_retry_interval=0.50,
-        known_retry_interval=0.75,
+        ambiguous_retry_interval=0.20,
+        unknown_retry_interval=0.35,
+        known_retry_interval=0.35,
         force_size_growth_ratio=1.15,
         force_det_score_delta=0.05,
     ):

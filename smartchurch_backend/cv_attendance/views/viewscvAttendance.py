@@ -560,75 +560,185 @@ def session_status(request):
         }
     )
 
-
 @require_http_methods(["GET"])
 def session_attendance_result(request, session_id):
     """
     GET /api/cv/session-result/<session_id>/
-    Return ringkasan lengkap attendance untuk session yang sudah selesai.
+
+    Flow attendance baru:
+    - Attendance hanya berisi orang yang benar-benar hadir.
+    - Member tidak hadir dihitung dari:
+      total member aktif - member hadir.
     """
-    from attendance.models import Attendance, Member, WorshipSession, TimelineDataRecord
+
+    from attendance.models import (
+        Attendance,
+        Member,
+        WorshipSession,
+        TimelineDataRecord,
+    )
 
     try:
-        try:
-            worship_session = WorshipSession.objects.get(id=session_id)
-        except WorshipSession.DoesNotExist:
-            return JsonResponse({"error": "Session tidak ditemukan"}, status=404)
-
-        rows = (
-            Attendance.objects
-            .filter(session_id=session_id)
-            .select_related("member")
+        worship_session = (
+            WorshipSession.objects
+            .filter(id=session_id)
+            .first()
         )
 
-        present_count = 0
-        absent_count = 0
+        if not worship_session:
+            return JsonResponse(
+                {
+                    "success": False,
+                    "error": "Session tidak ditemukan",
+                },
+                status=404,
+            )
 
-        for row in rows:
-            if row.attendance_date is not None:
-                present_count += 1
-            else:
-                absent_count += 1
+        # attendance_date__isnull=False juga melindungi laporan
+        # dari row pre-population lama yang masih belum dibersihkan.
+        valid_attendance_rows = (
+            Attendance.objects
+            .filter(
+                session_id=session_id,
+                attendance_date__isnull=False,
+            )
+            .select_related(
+                "member",
+                "guest",
+                "facedetection",
+            )
+        )
 
-        total_active_members = Member.objects.filter(member_status="active").count()
+        # Hanya member yang benar-benar hadir.
+        present_member_count = (
+            valid_attendance_rows
+            .filter(member__isnull=False)
+            .values("member_id")
+            .distinct()
+            .count()
+        )
+
+        # Guest yang telah dikonfirmasi dan masuk attendance.
+        guest_count = (
+            valid_attendance_rows
+            .filter(guest__isnull=False)
+            .values("guest_id")
+            .distinct()
+            .count()
+        )
+
+        total_attendance = (
+            present_member_count
+            + guest_count
+        )
+
+        total_active_members = (
+            Member.objects
+            .filter(member_status="active")
+            .count()
+        )
+
+        absent_count = max(
+            total_active_members - present_member_count,
+            0,
+        )
 
         need_validation_count = 0
 
-        if worship_session.start_time and worship_session.end_time:
-            need_validation_count = TimelineDataRecord.objects.filter(
-                capture_time__gte=worship_session.start_time,
-                capture_time__lte=worship_session.end_time,
-                validation_status="pending",
-                detection_status__in=["unknown", "ambiguous"],
-            ).count()
+        timeline_filter = {
+            "validation_status": "pending",
+            "detection_status__in": [
+                "unknown",
+                "ambiguous",
+            ],
+        }
+
+        if (
+            worship_session.start_time
+            and worship_session.end_time
+        ):
+            timeline_filter.update(
+                {
+                    "capture_time__gte": (
+                        worship_session.start_time
+                    ),
+                    "capture_time__lte": (
+                        worship_session.end_time
+                    ),
+                }
+            )
+
+            need_validation_count = (
+                TimelineDataRecord.objects
+                .filter(**timeline_filter)
+                .count()
+            )
 
         elif worship_session.start_time:
-            need_validation_count = TimelineDataRecord.objects.filter(
-                capture_time__gte=worship_session.start_time,
-                validation_status="pending",
-                detection_status__in=["unknown", "ambiguous"],
-            ).count()
+            timeline_filter.update(
+                {
+                    "capture_time__gte": (
+                        worship_session.start_time
+                    ),
+                }
+            )
 
-        total_detected = present_count + need_validation_count
+            need_validation_count = (
+                TimelineDataRecord.objects
+                .filter(**timeline_filter)
+                .count()
+            )
+
+        # Orang yang sudah hadir + data wajah yang belum divalidasi.
+        total_detected = (
+            total_attendance
+            + need_validation_count
+        )
 
         return JsonResponse(
             {
+                "success": True,
                 "session_id": session_id,
                 "session_name": worship_session.session_name,
-                "session_date": str(worship_session.date),
-                "start_time": worship_session.start_time.isoformat()
-                if worship_session.start_time
-                else None,
-                "end_time": worship_session.end_time.isoformat()
-                if worship_session.end_time
-                else None,
+                "session_date": (
+                    str(worship_session.date)
+                    if worship_session.date
+                    else None
+                ),
+                "start_time": (
+                    worship_session.start_time.isoformat()
+                    if worship_session.start_time
+                    else None
+                ),
+                "end_time": (
+                    worship_session.end_time.isoformat()
+                    if worship_session.end_time
+                    else None
+                ),
+
+                # Data member.
                 "total_active_members": total_active_members,
-                "total_detected": total_detected,
-                "present_count": present_count,
+                "present_count": present_member_count,
                 "absent_count": absent_count,
+
+                # Data guest.
+                "guest_count": guest_count,
+
+                # Total final attendance member + guest.
+                "total_attendance": total_attendance,
+
+                # Attendance final + pending validation.
+                "total_detected": total_detected,
                 "need_validation_count": need_validation_count,
-            }
+            },
+            status=200,
         )
 
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    except Exception as exc:
+        return JsonResponse(
+            {
+                "success": False,
+                "error": str(exc),
+            },
+            status=500,
+        )

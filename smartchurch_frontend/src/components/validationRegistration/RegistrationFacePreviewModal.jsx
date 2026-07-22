@@ -1,3 +1,5 @@
+//smartchurch_frontend\src\components\validationRegistration\RegistrationFacePreviewModal.jsx
+
 import { X } from "lucide-react";
 
 export default function RegistrationFacePreviewModal({

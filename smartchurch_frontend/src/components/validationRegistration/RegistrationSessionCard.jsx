@@ -1,24 +1,28 @@
+//smartchurch_frontend\src\components\validationRegistration\RegistrationSessionCard.jsx
 import {
   CalendarDays,
   ChevronDown,
   ChevronRight,
   Clock,
   Database,
+  Images,
 } from "lucide-react";
 
 import { formatDateTime } from "./registrationHelpers";
 
 export default function RegistrationSessionCard({
   summary,
-  groups,
+  pagination,
   isActive,
   onOpen,
 }) {
-  const firstGroup = groups?.[0] || null;
-  const lastGroup = groups?.[groups.length - 1] || null;
+  const firstTime = summary?.first_created_at || null;
+  const lastTime = summary?.last_created_at || null;
 
-  const firstTime = firstGroup?.first_created_at || null;
-  const lastTime = lastGroup?.last_created_at || null;
+  const totalPending = Number(summary?.total_pending_embeddings || 0);
+  const pagePending = Number(summary?.page_pending_embeddings || 0);
+  const currentPage = Number(pagination?.page || summary?.current_page || 1);
+  const totalPages = Number(pagination?.total_pages || summary?.total_pages || 1);
 
   return (
     <article
@@ -38,7 +42,8 @@ export default function RegistrationSessionCard({
           </h3>
 
           <p className="mt-1 text-sm leading-relaxed text-slate-500">
-            Data ini belum menjadi attendance. Pilih wajah lalu kaitkan ke jemaat.
+            Data ini belum menjadi attendance. Pilih beberapa wajah lalu
+            kaitkan ke jemaat.
           </p>
 
           <div className="mt-3 grid gap-2 text-sm text-slate-500">
@@ -51,6 +56,7 @@ export default function RegistrationSessionCard({
                 </strong>
               </span>
             </div>
+
             <div className="flex items-center gap-2">
               <Clock size={15} className="text-slate-400" />
               <span>
@@ -77,18 +83,39 @@ export default function RegistrationSessionCard({
         </button>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4">
-        <p className="text-xs font-bold uppercase tracking-wide text-amber-700">
-          Pending Registration
-        </p>
-
-        <div className="mt-1 flex items-end justify-between">
-          <p className="text-3xl font-extrabold text-amber-800">
-            {summary?.total_pending_embeddings || 0}
-          </p>
-          <p className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+          <p className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-amber-700">
             <Database size={13} />
-            {summary?.total_people_groups || 0} people group
+            Total Pending
+          </p>
+
+          <p className="mt-1 text-3xl font-extrabold text-amber-800">
+            {totalPending}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+          <p className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-500">
+            <Images size={13} />
+            Page Items
+          </p>
+
+          <p className="mt-1 text-3xl font-extrabold text-slate-800">
+            {pagePending}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Pagination
+          </p>
+
+          <p className="mt-1 text-3xl font-extrabold text-slate-800">
+            {currentPage}
+            <span className="text-base font-bold text-slate-400">
+              /{totalPages}
+            </span>
           </p>
         </div>
       </div>

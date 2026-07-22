@@ -19,7 +19,7 @@ from attendance.models import (
     WorshipSession,
 )
 
-from ..config import UNKNOWN_SAME_FACE_SIM
+from ..config import GUEST_SAME_FACE_SIM
 
 def ok_response(message="Success", data=None, status=200):
     payload = {
@@ -425,6 +425,71 @@ def get_ordered_selected_records(records, selected_record_ids):
         if record_id in record_map
     ]
 
+def get_existing_member_attendance(session, member):
+    """
+    Mengambil attendance member pada worship session yang sama.
+
+    select_for_update dipakai karena helper ini dipanggil di dalam
+    transaction.atomic(), sehingga request validasi untuk member yang sama
+    tidak saling menimpa.
+    """
+
+    return (
+        Attendance.objects
+        .select_for_update()
+        .filter(
+            session=session,
+            member=member,
+        )
+        .first()
+    )
+
+
+def delete_validation_timeline_records(records):
+    """
+    Menghapus TimelineDataRecord yang sudah tidak diperlukan setelah
+    action duplicate/already-attended selesai.
+
+    Pengamanan penting:
+    Attendance.facedetection memakai on_delete=CASCADE.
+    Karena itu TimelineDataRecord yang sudah direferensikan Attendance
+    tidak boleh langsung dihapus.
+    """
+
+    record_ids = list(
+        dict.fromkeys(
+            record.id
+            for record in records
+            if record and record.id
+        )
+    )
+
+    if not record_ids:
+        return [], None
+
+    referenced_record_ids = list(
+        Attendance.objects
+        .select_for_update()
+        .filter(facedetection_id__in=record_ids)
+        .values_list("facedetection_id", flat=True)
+    )
+
+    referenced_record_ids = sorted(
+        set(referenced_record_ids)
+    )
+
+    if referenced_record_ids:
+        return None, (
+            "TimelineDataRecord tidak dapat dihapus karena sudah digunakan "
+            "oleh attendance. Referenced record ids: "
+            f"{referenced_record_ids}"
+        )
+
+    TimelineDataRecord.objects.filter(
+        id__in=record_ids
+    ).delete()
+
+    return record_ids, None
 
 def validate_selected_records_have_face_data(selected_records):
     invalid_records = []
@@ -525,13 +590,18 @@ def serialize_member_face_embedding(embedding):
 
 def create_or_update_member_attendance(session, member, center_record):
     """
-    Rule duplicate:
-    - Kalau member sudah punya Attendance di session ini dan facedetection sudah terisi:
-      gagal.
-    - Kalau member sudah punya Attendance di session ini tapi facedetection masih null:
-      update row tersebut.
-    - Kalau belum ada:
-      create baru.
+    Membuat attendance untuk member yang benar-benar hadir.
+
+    Flow utama:
+    - Jika belum ada Attendance member pada session ini:
+      buat row Attendance baru.
+    - Jika sudah ada Attendance dengan facedetection:
+      tolak sebagai duplicate.
+    - Jika sudah ada Attendance tanpa facedetection:
+      row tersebut dianggap manual/legacy attendance dan dilengkapi
+      dengan evidence dari center_record.
+
+    Function ini tidak bergantung pada pre-population.
     """
 
     existing_attendance = (
@@ -542,7 +612,10 @@ def create_or_update_member_attendance(session, member, center_record):
     )
 
     if existing_attendance and existing_attendance.facedetection_id:
-        return None, "Member ini sudah memiliki attendance valid pada session ini."
+        return None,( 
+            "Member ini sudah memiliki attendance valid "
+            "pada session ini."
+        )
 
     facedetection_used = (
         Attendance.objects
@@ -752,6 +825,72 @@ def validation_ai_verify_action(request):
                     data={"detection_statuses": list(detection_statuses)},
                 )
 
+            # ======================================================
+            # IDEMPOTENT VERIFY
+            # Jika member sudah hadir pada session ini:
+            # - request tetap success;
+            # - attendance lama tidak diubah;
+            # - tidak membuat attendance baru;
+            # - semua pending timeline yang sedang diproses dihapus.
+            # ======================================================
+            existing_attendance = get_existing_member_attendance(
+                session=session,
+                member=member,
+            )
+
+            if existing_attendance:
+                deleted_record_ids, delete_error = (
+                    delete_validation_timeline_records(records)
+                )
+
+                if delete_error:
+                    return fail_response(
+                        delete_error,
+                        status=409,
+                        data={
+                            "session_id": session.id,
+                            "member_id": member.id,
+                            "processed_record_ids": [
+                                record.id
+                                for record in records
+                            ],
+                        },
+                    )
+
+                return ok_response(
+                    message=(
+                        f"{member.full_name} sudah tercatat hadir pada "
+                        "session ini. Attendance tidak diubah."
+                    ),
+                    data={
+                        "mode": mode,
+                        "already_attended": True,
+                        "attendance_skipped": True,
+                        "attendance_action": "skipped_existing",
+                        "session": {
+                            "id": session.id,
+                            "session_name": session.session_name,
+                            "date": (
+                                session.date.isoformat()
+                                if session.date
+                                else None
+                            ),
+                        },
+                        "member": {
+                            "id": member.id,
+                            "full_name": member.full_name,
+                        },
+                        "attendance": serialize_attendance(
+                            existing_attendance
+                        ),
+                        "verified_record_id": None,
+                        "rejected_record_ids": [],
+                        "deleted_record_ids": deleted_record_ids,
+                        "processed_record_ids": deleted_record_ids,
+                    },
+                    status=200,
+                )
+
             attendance, attendance_error = create_or_update_member_attendance(
                 session=session,
                 member=member,
@@ -786,6 +925,9 @@ def validation_ai_verify_action(request):
                 message="Data berhasil diverifikasi dan masuk ke attendance.",
                 data={
                     "mode": mode,
+                    "already_attended": False,
+                    "attendance_skipped": False,
+                    "attendance_action": "created_or_updated",
                     "session": {
                         "id": session.id,
                         "session_name": session.session_name,
@@ -798,6 +940,7 @@ def validation_ai_verify_action(request):
                     "attendance": serialize_attendance(attendance),
                     "verified_record_id": center_record.id,
                     "rejected_record_ids": rejected_record_ids,
+                    "deleted_record_ids": [],
                     "processed_record_ids": [record.id for record in records],
                 },
                 status=200,
@@ -827,12 +970,6 @@ def validation_ai_reject_action(request):
       "session_id": 6,
       "record_ids": [61, 62, 63]
     }
-
-    Rules:
-    - Ambiguous: 1 record menjadi rejected.
-    - Unknown group: semua record dalam group menjadi rejected.
-    - face_image dan face_encoding dihapus.
-    - row tetap ada.
     """
 
     body = parse_body(request)
@@ -926,13 +1063,7 @@ def validation_ai_reject_action(request):
             detection_statuses = {record.detection_status for record in records}
 
             if detection_statuses == {"ambiguous"}:
-                if len(records) != 1:
-                    return fail_response(
-                        "Reject ambiguous hanya boleh memproses 1 record.",
-                        status=400,
-                    )
-
-                mode = "ambiguous"
+                mode = "ambiguous_flat" if len(records) > 1 else "ambiguous"
 
             elif detection_statuses == {"unknown"}:
                 mode = "unknown_group"
@@ -1083,13 +1214,13 @@ def validation_ai_find_guest_by_ai_action(request):
                     message="Belum ada data tamu dengan face encoding yang bisa dibandingkan.",
                     data={
                         "found": False,
-                        "threshold": round(UNKNOWN_SAME_FACE_SIM * 100, 2),
+                        "threshold": round(GUEST_SAME_FACE_SIM * 100, 2),
                         "recommendation": None,
                     },
                     status=200,
                 )
 
-            is_match = best_similarity >= UNKNOWN_SAME_FACE_SIM
+            is_match = best_similarity >= GUEST_SAME_FACE_SIM
 
             return ok_response(
                 message=(
@@ -1099,7 +1230,7 @@ def validation_ai_find_guest_by_ai_action(request):
                 ),
                 data={
                     "found": is_match,
-                    "threshold": round(UNKNOWN_SAME_FACE_SIM * 100, 2),
+                    "threshold": round(GUEST_SAME_FACE_SIM * 100, 2),
                     "recommendation": serialize_guest_for_validation(
                         best_guest,
                         similarity=best_similarity,
@@ -1489,17 +1620,6 @@ def validation_ai_add_member_face_action(request):
         "address": "Jakarta"
       }
     }
-
-    Rules:
-    - Ambiguous:
-      hanya 1 record, otomatis boleh selected 1.
-    - Unknown group:
-      selected_record_ids minimal 1.
-      selected_record_ids[0] menjadi facedetection attendance.
-    - Semua selected record dibuatkan MemberFaceEmbedding.
-    - Semua selected record menjadi verified + final_member.
-    - Record lain dalam group menjadi rejected dan face data dibersihkan.
-    - Attendance dibuat/update untuk member memakai selected record pertama.
     """
 
     body = parse_body(request)
@@ -1599,24 +1719,13 @@ def validation_ai_add_member_face_action(request):
             detection_statuses = {record.detection_status for record in records}
 
             if detection_statuses == {"ambiguous"}:
-                if len(records) != 1:
-                    return fail_response(
-                        "Tambah wajah untuk ambiguous hanya boleh 1 record.",
-                        status=400,
-                    )
+                process_mode = "ambiguous_flat" if len(records) > 1 else "ambiguous"
 
-                process_mode = "ambiguous"
-
-                # Ambiguous tidak perlu pilih gambar dari frontend.
-                # Kalau frontend kosong, backend otomatis pakai record satu-satunya.
+                # Untuk ambiguous flat selected-mode:
+                # frontend mengirim record_ids = selected ids.
+                # Jika selected_record_ids kosong, backend pakai semua record_ids.
                 if len(clean_selected_record_ids) == 0:
-                    clean_selected_record_ids = [records[0].id]
-
-                if clean_selected_record_ids != [records[0].id]:
-                    return fail_response(
-                        "selected_record_ids untuk ambiguous harus berisi record ambiguous tersebut.",
-                        status=400,
-                    )
+                    clean_selected_record_ids = [record.id for record in records]
 
             elif detection_statuses == {"unknown"}:
                 process_mode = "unknown_group"
@@ -1683,15 +1792,92 @@ def validation_ai_add_member_face_action(request):
                 if member_error:
                     return fail_response(member_error, status=400)
 
+            # ======================================================
+            # ADD MEMBER FACE UNTUK MEMBER YANG SUDAH HADIR
+            #
+            # Jika attendance member sudah tersedia:
+            # - simpan semua selected face ke MemberFaceEmbedding;
+            # - jangan mengubah atau membuat attendance;
+            # - hapus seluruh TimelineDataRecord dalam action/group.
+            #
+            # Embedding dibuat sebelum timeline dihapus karena source image
+            # dan encoding berasal dari TimelineDataRecord.
+            # Seluruh proses masih berada dalam transaction.atomic().
+            # ======================================================
+            existing_attendance = get_existing_member_attendance(
+                session=session,
+                member=member,
+            )
+
+            if existing_attendance:
+                embeddings = create_member_face_embeddings(
+                    member=member,
+                    selected_records=selected_records,
+                )
+
+                deleted_record_ids, delete_error = (
+                    delete_validation_timeline_records(records)
+                )
+
+                if delete_error:
+                    return fail_response(
+                        delete_error,
+                        status=409,
+                        data={
+                            "session_id": session.id,
+                            "member_id": member.id,
+                            "processed_record_ids": [
+                                record.id
+                                for record in records
+                            ],
+                        },
+                    )
+
+                return ok_response(
+                    message=(
+                        f"{len(embeddings)} data wajah berhasil ditambahkan "
+                        f"ke {member.full_name}. Member ini sudah hadir, "
+                        "sehingga attendance tidak diubah."
+                    ),
+                    data={
+                        "process_mode": process_mode,
+                        "member_mode": mode,
+                        "already_attended": True,
+                        "attendance_skipped": True,
+                        "attendance_action": "skipped_existing",
+                        "session": {
+                            "id": session.id,
+                            "session_name": session.session_name,
+                            "date": (
+                                session.date.isoformat()
+                                if session.date
+                                else None
+                            ),
+                        },
+                        "member": serialize_member_for_validation(member),
+                        "attendance": serialize_attendance(
+                            existing_attendance
+                        ),
+                        "attendance_record_id": None,
+                        "verified_record_ids": [],
+                        "rejected_record_ids": [],
+                        "deleted_record_ids": deleted_record_ids,
+                        "processed_record_ids": deleted_record_ids,
+                        "embedding_ids": [
+                            embedding.id
+                            for embedding in embeddings
+                        ],
+                        "embeddings": [
+                            serialize_member_face_embedding(embedding)
+                            for embedding in embeddings
+                        ],
+                    },
+                    status=200,
+                )
+
             # Record pertama sesuai urutan selected_record_ids dari frontend
             # yang akan masuk ke Attendance.facedetection.
             attendance_record = selected_records[0]
-
-            # Simpan semua selected image ke MemberFaceEmbedding dulu.
-            embeddings = create_member_face_embeddings(
-                member=member,
-                selected_records=selected_records,
-            )
 
             attendance, attendance_error = create_or_update_member_attendance(
                 session=session,
@@ -1709,6 +1895,13 @@ def validation_ai_add_member_face_action(request):
                         "attendance_record_id": attendance_record.id,
                     },
                 )
+            
+            # Simpan semua selected image ke MemberFaceEmbedding dulu.
+            embeddings = create_member_face_embeddings(
+                member=member,
+                selected_records=selected_records,
+            )
+
 
             validated_at = timezone.now()
 
@@ -1733,6 +1926,9 @@ def validation_ai_add_member_face_action(request):
                 data={
                     "process_mode": process_mode,
                     "member_mode": mode,
+                    "already_attended": False,
+                    "attendance_skipped": False,
+                    "attendance_action": "created_or_updated",
                     "session": {
                         "id": session.id,
                         "session_name": session.session_name,
@@ -1743,6 +1939,7 @@ def validation_ai_add_member_face_action(request):
                     "attendance_record_id": attendance_record.id,
                     "verified_record_ids": verified_record_ids,
                     "rejected_record_ids": rejected_record_ids,
+                    "deleted_record_ids": [],
                     "processed_record_ids": [record.id for record in records],
                     "embedding_ids": [embedding.id for embedding in embeddings],
                     "embeddings": [

@@ -1,0 +1,10 @@
+{
+  "is_running": false,
+  "process_id": null,
+  "last_started_at": "2026-07-05T15:02:20",
+  "last_finished_at": "2026-07-05T15:04:36",
+  "last_exit_code": 0,
+  "config_changed": true,
+  "reload_triggered": true,
+  "message": "Camera configurator ditutup. Konfigurasi berhasil disimpan. Django reload sedang dijalankan."
+}

@@ -548,8 +548,10 @@ export function MemberModal({
               {selectedRecords?.length || 0} gambar akan ditambahkan
             </p>
             <p className="mt-1 text-xs leading-relaxed text-blue-700">
-              Semua gambar terpilih akan dibuat sebagai data aktif di Member Face Embedding.
-              Gambar pertama dari pilihan akan dipakai sebagai data attendance sesi ini.
+              Semua gambar terpilih akan dibuat sebagai data aktif di Member Face
+              Embedding. Jika jemaat belum memiliki attendance pada sesi ini, gambar
+              pertama akan dipakai sebagai evidence attendance. Jika jemaat sudah hadir,
+              attendance tidak akan diubah.
             </p>
           </div>
           <div className="rounded-2xl bg-slate-100 p-1">
@@ -842,17 +844,18 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
     <div className="gv-enter grid gap-3 sm:grid-cols-2">
       <div className="sm:col-span-2">
         <label className={labelCls}>Nama Lengkap *</label>
-        <input
-          value={memberForm.full_name}
-          onChange={(e) =>
-            setMemberForm((prev) => ({
-              ...prev,
-              full_name: e.target.value,
-            }))
-          }
-          className={inputCls}
-          placeholder="Nama lengkap jemaat"
-        />
+          <input
+            value={memberForm.full_name}
+            disabled={disabled}
+            onChange={(e) =>
+              setMemberForm((prev) => ({
+                ...prev,
+                full_name: e.target.value,
+              }))
+            }
+            className={inputCls}
+            placeholder="Nama lengkap jemaat"
+          />
       </div>
 
       <div>
@@ -873,19 +876,20 @@ function NewMemberForm({ memberForm, setMemberForm, disabled = false }) {
 
       <div>
         <label className={labelCls}>Gender</label>
-        <select
-          value={memberForm.gender}
-          onChange={(e) =>
-            setMemberForm((prev) => ({
-              ...prev,
-              gender: e.target.value,
-            }))
-          }
-          className={inputCls}
-        >
-          <option value="L">Laki-laki</option>
-          <option value="P">Perempuan</option>
-        </select>
+          <select
+            value={memberForm.gender}
+            disabled={disabled}
+            onChange={(e) =>
+              setMemberForm((prev) => ({
+                ...prev,
+                gender: e.target.value,
+              }))
+            }
+            className={inputCls}
+          >
+            <option value="L">Laki-laki</option>
+            <option value="P">Perempuan</option>
+          </select>
       </div>
 
       <div>

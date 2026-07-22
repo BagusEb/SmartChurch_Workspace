@@ -2,7 +2,6 @@
 
 from django.db import models
 from django.contrib.auth.models import User
-from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -150,14 +149,14 @@ class Guest(models.Model):
 
 
 class MemberFaceEmbedding(models.Model):
-    member = models.ForeignKey(Member, on_delete=models.CASCADE)
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, null=True, blank=True)
     face_encoding = (
         models.JSONField()
     )  # textfild kita ubah ke json fild, karena isinya langsung vector
     face_image = models.BinaryField(
         blank=True, null=True
     )  # ganti ke bollean karena kita langsung store ke database
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True, null = True, blank = True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -246,6 +245,17 @@ class Attendance(models.Model):
 
     class Meta:
         db_table = "t_attendance"
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "member"],
+                name="uniq_attendance_session_member",
+            ),
+            models.UniqueConstraint(
+                fields=["session", "guest"],
+                name="uniq_attendance_session_guest",
+            ),
+        ]
 
 
 # ==========================================

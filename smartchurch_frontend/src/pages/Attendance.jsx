@@ -1,11 +1,15 @@
 // src/pages/Attendance.jsx
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  startSession,
+  startAttendanceSession,
+  startRegistrationSession,
   stopSession,
   getDetectionLogs,
   getSessionStatus,
   getSessionAttendanceResult,
+  openCameraConfigurator,
+  getCameraConfiguratorStatus,
+  openCameraMonitor,
 } from '../service/apiClient';
 
 import {
@@ -22,11 +26,11 @@ import {
   X,
   Tag,
   CalendarDays,
-  ExternalLink,
   Timer,
   UserCheck,
-  Wifi,
   Users,
+  Settings,
+  MonitorUp,
 } from 'lucide-react';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -81,21 +85,73 @@ const getDefaultStats = (mode = 'attendance') => {
   };
 };
 
+const START_MODE_CONFIG = {
+  attendance: {
+    mode: 'attendance',
+    title: 'Mulai Sesi Absensi',
+    subtitle: 'Beri nama sesi absensi sebelum kamera diaktifkan.',
+    label: 'Nama Sesi Absensi',
+    placeholder: 'Contoh: Ibadah Raya Sabat',
+    buttonText: 'Mulai Absensi',
+    loadingText: 'Memulai Absensi...',
+    gradient: 'from-indigo-500 via-violet-600 to-purple-700',
+    quickOptions: [
+      'Ibadah Raya Sabat',
+      'Ibadah Sabtu Sore',
+      'Ibadah Pemuda',
+      'Ibadah Doa Malam',
+      'Ibadah Anak-anak',
+    ],
+  },
+
+  registration: {
+    mode: 'registration',
+    title: 'Start Sesi Registration',
+    subtitle:
+      'Mode ini hanya mengumpulkan wajah untuk face enrollment, bukan absensi.',
+    label: 'Nama Sesi Registration',
+    placeholder: 'Contoh: Registration Jemaat Baru',
+    buttonText: 'Start Registration',
+    loadingText: 'Memulai Registration...',
+    gradient: 'from-amber-500 via-orange-500 to-yellow-600',
+    quickOptions: [
+      'Registration Jemaat Baru',
+      'Registration Setelah Ibadah',
+      'Registration Keluarga Baru',
+      'Initial Face Registration',
+    ],
+  },
+};
+
 // ═══════════════════════════════════════════════════════════════
 //  MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════
 export default function Attendance() {
   const [isSessionActive, setIsSessionActive] = useState(false);
+  const [isOpeningMonitor, setIsOpeningMonitor] =
+  useState(false);
   const [currentSession, setCurrentSession] = useState(null);
   const [currentMode, setCurrentMode] = useState('idle'); // idle | attendance | registration
 
   const [isStartModalOpen, setIsStartModalOpen] = useState(false);
+  const [startMode, setStartMode] = useState('attendance');
   const [isStopConfirmOpen, setIsStopConfirmOpen] = useState(false);
   const [isStopResultOpen, setIsStopResultOpen] = useState(false);
   const [stoppedSessionData, setStoppedSessionData] = useState(null);
 
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+
+  const [isOpeningCameraConfig, setIsOpeningCameraConfig] =
+    useState(false);
+
+  const [
+    isCameraConfiguratorRunning,
+    setIsCameraConfiguratorRunning,
+  ] = useState(false);
+
+  const [isBackendReloading, setIsBackendReloading] =
+    useState(false);
 
   const [inputName, setInputName] = useState('');
   const [inputError, setInputError] = useState('');
@@ -106,9 +162,13 @@ export default function Attendance() {
   const [info, setInfo] = useState(null);
 
   const pollingRef = useRef(null);
+
+  const cameraConfigPollingRef = useRef(null);
   const logsEndRef = useRef(null);
 
   const isRegistrationMode = currentMode === 'registration';
+  const startConfig = START_MODE_CONFIG[startMode] || START_MODE_CONFIG.attendance;
+  const isStartModalRegistration = startMode === 'registration';
 
   const totalDetections = isRegistrationMode
     ? Number(stats.detected || 0)
@@ -168,6 +228,7 @@ export default function Attendance() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [liveLogs]);
 
+
   const startPolling = useCallback(() => {
     if (pollingRef.current) clearInterval(pollingRef.current);
 
@@ -185,10 +246,12 @@ export default function Attendance() {
               (nl) =>
                 !prev.some(
                   (ol) =>
+                    ol.track_id === nl.track_id &&
                     ol.time === nl.time &&
                     ol.name === nl.name &&
                     ol.similarity === nl.similarity &&
-                    ol.status === nl.status
+                    ol.status === nl.status &&
+                    ol.is_update === nl.is_update
                 )
             );
 
@@ -215,6 +278,104 @@ export default function Attendance() {
     }
   }, []);
 
+  const stopCameraConfiguratorPolling = useCallback(() => {
+    if (cameraConfigPollingRef.current) {
+      clearInterval(cameraConfigPollingRef.current);
+      cameraConfigPollingRef.current = null;
+    }
+  }, []);
+
+
+  const startCameraConfiguratorPolling = useCallback(
+    (expectedStartedAt) => {
+      stopCameraConfiguratorPolling();
+
+      const pollCameraConfigurator = async () => {
+        try {
+          const response =
+            await getCameraConfiguratorStatus();
+
+          const configState = response?.state;
+
+          setIsBackendReloading(false);
+
+          if (!configState) {
+            return;
+          }
+
+          // Pastikan status ini berasal dari proses yang baru dibuka,
+          // bukan proses configurator sebelumnya.
+          if (
+            expectedStartedAt &&
+            configState.last_started_at !== expectedStartedAt
+          ) {
+            return;
+          }
+
+          setIsCameraConfiguratorRunning(
+            Boolean(configState.is_running)
+          );
+
+          if (configState.is_running) {
+            setInfo(
+              'Camera Configurator sedang berjalan di komputer server. ' +
+                'Selesaikan pengaturan lalu tutup aplikasinya.'
+            );
+            return;
+          }
+
+          if (configState.last_finished_at) {
+            stopCameraConfiguratorPolling();
+
+            setIsCameraConfiguratorRunning(false);
+            setIsBackendReloading(false);
+
+            if (configState.reload_triggered) {
+              setInfo(
+                'Konfigurasi kamera berhasil disimpan dan backend ' +
+                  'sudah aktif kembali dengan konfigurasi baru.'
+              );
+            } else {
+              setInfo(
+                configState.message ||
+                  'Camera Configurator telah ditutup.'
+              );
+            }
+          }
+        } catch (pollError) {
+          /*
+           * Saat config.py disentuh, Django runserver berhenti
+           * sebentar dan memulai ulang. Pada periode itu request
+           * status dapat gagal. Ini kondisi yang diharapkan.
+           */
+          console.warn(
+            '[Attendance] Backend sedang reload:',
+            pollError
+          );
+
+          setIsBackendReloading(true);
+          setInfo(
+            'Konfigurasi selesai. Mohon tunggu ± 2 menit, system sedang memuat ulang...,'
+          );
+        }
+      };
+
+      cameraConfigPollingRef.current = setInterval(
+        pollCameraConfigurator,
+        1000
+      );
+
+      void pollCameraConfigurator();
+    },
+    [stopCameraConfiguratorPolling]
+  );
+
+  useEffect(() => {
+    return () => {
+      stopCameraConfiguratorPolling();
+    };
+  }, [stopCameraConfiguratorPolling]);
+  
   useEffect(() => {
     (async () => {
       try {
@@ -261,15 +422,27 @@ export default function Attendance() {
   }, [startPolling, stopPolling]);
 
   // ── Handlers ─────────────────────────────────────────────────
-  const handleOpenStartModal = () => {
-    setInputName('');
+  const handleOpenStartModal = (mode = 'attendance') => {
+    const nextMode = mode === 'registration' ? 'registration' : 'attendance';
+    const config = START_MODE_CONFIG[nextMode];
+
+    setStartMode(nextMode);
+    setInputName(config.quickOptions[0] || '');
     setInputError('');
+    setError(null);
+    setInfo(null);
     setIsStartModalOpen(true);
   };
 
   const handleConfirmStart = async () => {
-    if (!inputName.trim()) {
-      setInputError('Nama sesi wajib diisi');
+    const cleanName = inputName.trim();
+
+    if (!cleanName) {
+      setInputError(
+        startMode === 'registration'
+          ? 'Nama sesi registration wajib diisi'
+          : 'Nama sesi absensi wajib diisi'
+      );
       return;
     }
 
@@ -277,21 +450,23 @@ export default function Attendance() {
     setIsStarting(true);
 
     try {
-      const res = await startSession(inputName.trim());
+      const res =
+        startMode === 'registration'
+          ? await startRegistrationSession(cleanName)
+          : await startAttendanceSession(cleanName);
 
       if (res.success) {
-        const mode = res.mode || 'attendance';
+        const mode = res.mode || startMode;
 
         setIsSessionActive(true);
         setCurrentMode(mode);
 
         setCurrentSession({
-          id: res.session_id,
+          id: res.session_id || null,
           name:
             res.session_name ||
-            (mode === 'registration'
-              ? `Registration - ${inputName.trim()}`
-              : inputName.trim()),
+            res.registration_name ||
+            cleanName,
           start_time: new Date().toISOString(),
           mode,
         });
@@ -304,18 +479,24 @@ export default function Attendance() {
         if (mode === 'registration') {
           setInfo(
             res.message ||
-              'Mode registration dimulai. Data ini hanya untuk pengumpulan wajah dan belum masuk attendance.'
+              'Mode registration dimulai. Data wajah akan disimpan sebagai staging dan belum masuk attendance.'
           );
         } else {
           setInfo(null);
         }
 
         startPolling();
-      } else {
-        setInputError(res.message || 'Gagal memulai sesi');
+        return;
       }
+
+      setInputError(res.message || 'Gagal memulai sesi');
     } catch (e) {
-      setInputError('Gagal menghubungi server. Pastikan backend berjalan.');
+      const responseMessage = e?.response?.data?.message;
+
+      setInputError(
+        responseMessage ||
+          'Gagal menghubungi server. Pastikan backend berjalan.'
+      );
     } finally {
       setIsStarting(false);
     }
@@ -380,8 +561,102 @@ export default function Attendance() {
     }
   };
 
-  const handleOpenCamera = () => {
-    window.open('/camera', '_blank', 'noopener,noreferrer');
+  const handleOpenCamera = async () => {
+    if (!isSessionActive) {
+      setError(
+        'Monitor kamera hanya dapat dibuka ketika sesi sedang aktif.'
+      );
+      return;
+    }
+
+    setIsOpeningMonitor(true);
+    setError(null);
+    setInfo(null);
+
+    try {
+      const response = await openCameraMonitor();
+
+      if (!response?.success) {
+        setError(
+          response?.message ||
+            'Gagal membuka monitor kamera.'
+        );
+        return;
+      }
+
+      setInfo(
+        response?.message ||
+          'Monitor kamera berhasil dibuka di laptop server.'
+      );
+    } catch (requestError) {
+      console.error(
+        '[Attendance] Open monitor error:',
+        requestError
+      );
+
+      const responseMessage =
+        requestError?.response?.data?.message;
+
+      setError(
+        responseMessage ||
+          'Gagal membuka monitor kamera. Pastikan backend berjalan di laptop server.'
+      );
+    } finally {
+      setIsOpeningMonitor(false);
+    }
+  };
+
+  const handleOpenCameraConfigurator = async () => {
+    if (isSessionActive) {
+      setError(
+        'Setting Camera hanya dapat dibuka ketika tidak ada sesi aktif.'
+      );
+      return;
+    }
+
+    setIsOpeningCameraConfig(true);
+    setError(null);
+    setInfo(null);
+
+    try {
+      const response = await openCameraConfigurator();
+
+      if (!response?.success) {
+        setError(
+          response?.message ||
+            'Gagal membuka Camera Configurator.'
+        );
+        return;
+      }
+
+      const startedAt =
+        response?.state?.last_started_at || null;
+
+      setIsCameraConfiguratorRunning(true);
+
+      setInfo(
+        'Camera Configurator berhasil dibuka di komputer server. ' +
+          'Atur posisi kamera lalu tutup aplikasi menggunakan tombol X.'
+      );
+
+      startCameraConfiguratorPolling(startedAt);
+    } catch (requestError) {
+      console.error(
+        '[Attendance] Open camera configurator error:',
+        requestError
+      );
+
+      const responseMessage =
+        requestError?.response?.data?.message;
+
+      setError(
+        responseMessage ||
+          'Gagal membuka Camera Configurator. ' +
+            'Pastikan backend dan file EXE tersedia.'
+      );
+    } finally {
+      setIsOpeningCameraConfig(false);
+    }
   };
 
   // ═════════════════════════════════════════════════════════════
@@ -445,29 +720,76 @@ export default function Attendance() {
             </div>
           </div>
 
-          <div
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold flex-shrink-0 transition-all ${
-              isSessionActive
-                ? isRegistrationMode
-                  ? 'bg-amber-50 border-amber-200 text-amber-700'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                : 'bg-slate-100 border-slate-200 text-slate-500'
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!isSessionActive && (
+              <button
+                type="button"
+                onClick={handleOpenCameraConfigurator}
+                disabled={
+                  isOpeningCameraConfig ||
+                  isCameraConfiguratorRunning ||
+                  isBackendReloading
+                }
+                className="
+                  inline-flex items-center gap-2
+                  px-4 py-2 rounded-xl
+                  border border-indigo-200
+                  bg-indigo-50 text-indigo-700
+                  text-sm font-semibold
+                  hover:bg-indigo-100
+                  hover:border-indigo-300
+                  transition-all
+                  disabled:opacity-60
+                  disabled:cursor-not-allowed
+                "
+              >
+                {isOpeningCameraConfig ||
+                isCameraConfiguratorRunning ||
+                isBackendReloading ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Settings size={15} />
+                )}
+
+                {isOpeningCameraConfig
+                  ? 'Membuka...'
+                  : isCameraConfiguratorRunning
+                  ? 'Configurator Aktif'
+                  : isBackendReloading
+                  ? 'Backend Reload...'
+                  : 'Setting Camera Position'}
+              </button>
+            )}
+
+            <div
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold flex-shrink-0 transition-all ${
                 isSessionActive
                   ? isRegistrationMode
-                    ? 'bg-amber-500 rec-anim'
-                    : 'bg-emerald-500 rec-anim'
-                  : 'bg-slate-400'
+                    ? 'bg-amber-50 border-amber-200 text-amber-700'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  : 'bg-slate-100 border-slate-200 text-slate-500'
               }`}
-            />
-            {isSessionActive
-              ? isRegistrationMode
-                ? `REGISTRATION — ${currentSession?.name || 'Face Registration'}`
-                : `AKTIF — ${currentSession?.name || 'Sesi Berjalan'}`
-              : 'TIDAK ADA SESI AKTIF'}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isSessionActive
+                    ? isRegistrationMode
+                      ? 'bg-amber-500 rec-anim'
+                      : 'bg-emerald-500 rec-anim'
+                    : 'bg-slate-400'
+                }`}
+              />
+
+              {isSessionActive
+                ? isRegistrationMode
+                  ? `REGISTRATION — ${
+                      currentSession?.name || 'Face Registration'
+                    }`
+                  : `AKTIF — ${
+                      currentSession?.name || 'Sesi Berjalan'
+                    }`
+                : 'TIDAK ADA SESI AKTIF'}
+            </div>
           </div>
         </div>
 
@@ -628,16 +950,28 @@ export default function Attendance() {
 
                     <div className="flex flex-col items-center gap-2 mt-2">
                       <button
+                        type="button"
                         onClick={handleOpenCamera}
-                        className="btn-camera flex items-center gap-2 text-white px-6 py-3 rounded-xl font-semibold text-sm shadow-lg"
+                        disabled={isOpeningMonitor}
+                        className="btn-camera flex items-center gap-2 text-white px-6 py-3 rounded-xl font-semibold text-sm shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        <ExternalLink size={16} />
-                        Buka Tampilan Kamera Penuh
+                        {isOpeningMonitor ? (
+                          <Loader2
+                            size={16}
+                            className="animate-spin"
+                          />
+                        ) : (
+                          <MonitorUp size={16} />
+                        )}
+
+                        {isOpeningMonitor
+                          ? 'Membuka Monitor...'
+                          : 'Buka Monitor Kamera'}
                       </button>
 
                       <p className="text-slate-600 text-xs flex items-center gap-1">
-                        <Wifi size={11} />
-                        Terbuka di tab baru — deteksi tetap berjalan di sini
+                        <MonitorUp size={11} />
+                        Window monitor akan muncul langsung di laptop server
                       </p>
                     </div>
 
@@ -679,7 +1013,7 @@ export default function Attendance() {
                       Kamera Tidak Aktif
                     </p>
                     <p className="text-slate-600 text-xs mt-1">
-                      Klik "Mulai Sesi Absensi" untuk mengaktifkan AI dan kamera
+                      Pilih "Mulai Sesi Absensi" untuk attendance atau "Start Sesi Registration" untuk enrollment wajah
                     </p>
                   </div>
                 </div>
@@ -689,30 +1023,55 @@ export default function Attendance() {
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-4 flex items-center justify-between flex-shrink-0">
               <div className="min-w-0 mr-4">
                 <p className="text-sm font-bold text-slate-800">
-                  Kontrol Sesi Absensi
+                  Kontrol Sesi Kamera
                 </p>
                 <p className="text-xs text-slate-400 mt-0.5 truncate">
                   {isSessionActive
                     ? isRegistrationMode
                       ? `Mode registration "${currentSession?.name}" sedang berjalan`
                       : `Sesi "${currentSession?.name}" sedang berjalan`
-                    : 'Pastikan pencahayaan ruangan cukup sebelum memulai'}
+                    : 'Pilih mode absensi atau registration sebelum mengaktifkan kamera'}
                 </p>
               </div>
 
               {!isSessionActive ? (
-                <button
-                  onClick={handleOpenStartModal}
-                  disabled={isStarting}
-                  className="btn-start flex items-center gap-2 text-white px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md disabled:opacity-60 disabled:cursor-not-allowed flex-shrink-0"
-                >
-                  {isStarting ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <Play size={16} fill="currentColor" />
-                  )}
-                  {isStarting ? 'Memulai...' : 'Mulai Sesi Absensi'}
-                </button>
+                <div className="flex flex-wrap justify-end gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenStartModal('registration')}
+                    disabled={isStarting}
+                    className="
+                      flex items-center gap-2
+                      text-white px-5 py-2.5 rounded-xl
+                      font-semibold text-sm shadow-md
+                      disabled:opacity-60 disabled:cursor-not-allowed
+                      bg-gradient-to-br from-amber-500 to-orange-600
+                      hover:from-amber-600 hover:to-orange-700
+                      transition-all
+                    "
+                  >
+                    {isStarting ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <UserCheck size={16} />
+                    )}
+                    Start Sesi Registration
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenStartModal('attendance')}
+                    disabled={isStarting}
+                    className="btn-start flex items-center gap-2 text-white px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isStarting ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Play size={16} fill="currentColor" />
+                    )}
+                    Mulai Sesi Absensi
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={handleOpenStopConfirm}
@@ -787,7 +1146,7 @@ export default function Attendance() {
 
                   return (
                     <div
-                      key={`${log.time}-${log.name}-${log.similarity}-${log.status}-${i}`}
+                      key={`${log.track_id || 'no-track'}-${log.time}-${log.name}-${log.similarity}-${log.status}-${log.is_update}-${i}`}
                       className="log-item p-3 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-white hover:border-indigo-100 hover:shadow-sm transition-all flex items-start gap-3"
                     >
                       <div className="mt-0.5 flex-shrink-0">
@@ -872,7 +1231,7 @@ export default function Attendance() {
       {isStartModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="modal-enter bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="relative bg-gradient-to-br from-indigo-500 via-violet-600 to-purple-700 px-6 py-7 text-white">
+            <div className={`relative bg-gradient-to-br ${startConfig.gradient} px-6 py-7 text-white`}>
               <button
                 onClick={() => setIsStartModalOpen(false)}
                 className="absolute top-4 right-4 p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all"
@@ -884,9 +1243,13 @@ export default function Attendance() {
                 <Camera size={22} className="text-white" />
               </div>
 
-              <h3 className="text-xl font-extrabold">Mulai Sesi Baru</h3>
-              <p className="text-indigo-200 text-sm mt-1">
-                Beri nama sesi ini sebelum kamera diaktifkan.
+              <h3 className="text-xl font-extrabold">{startConfig.title}</h3>
+              <p
+                className={`text-sm mt-1 ${
+                  isStartModalRegistration ? 'text-amber-100' : 'text-indigo-200'
+                }`}
+              >
+                {startConfig.subtitle}
               </p>
 
               <div className="mt-4 flex items-center gap-2 bg-white/10 rounded-xl px-3 py-2 w-fit">
@@ -900,7 +1263,7 @@ export default function Attendance() {
             <div className="px-6 py-6 space-y-5">
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
-                  Nama Sesi <span className="text-red-400">*</span>
+                  {startConfig.label} <span className="text-red-400">*</span>
                 </label>
 
                 <div className="relative">
@@ -911,7 +1274,7 @@ export default function Attendance() {
 
                   <input
                     type="text"
-                    placeholder="Contoh: Ibadah Raya Sabat"
+                    placeholder={startConfig.placeholder}
                     value={inputName}
                     onChange={(e) => {
                       setInputName(e.target.value);
@@ -941,13 +1304,7 @@ export default function Attendance() {
                 </p>
 
                 <div className="flex flex-wrap gap-2">
-                  {[
-                    'Ibadah Raya Sabat',
-                    'Ibadah Sabtu Sore',
-                    'Ibadah Pemuda',
-                    'Ibadah Doa Malam',
-                    'Ibadah Anak-anak',
-                  ].map((s) => (
+                  {startConfig.quickOptions.map((s) => (
                     <button
                       key={s}
                       onClick={() => {
@@ -974,14 +1331,20 @@ export default function Attendance() {
               <button
                 onClick={handleConfirmStart}
                 disabled={isStarting}
-                className="btn-start flex-1 flex items-center justify-center gap-2 text-white py-2.5 rounded-xl font-semibold text-sm shadow-md disabled:opacity-60"
+                className={`${
+                  isStartModalRegistration ? '' : 'btn-start'
+                } flex-1 flex items-center justify-center gap-2 text-white py-2.5 rounded-xl font-semibold text-sm shadow-md disabled:opacity-60 ${
+                  isStartModalRegistration
+                    ? 'bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 transition-all'
+                    : ''
+                }`}
               >
                 {isStarting ? (
                   <Loader2 size={15} className="animate-spin" />
                 ) : (
                   <Play size={15} fill="currentColor" />
                 )}
-                {isStarting ? 'Memulai...' : 'Mulai Sesi'}
+                {isStarting ? startConfig.loadingText : startConfig.buttonText}
               </button>
             </div>
           </div>

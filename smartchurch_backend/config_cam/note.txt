@@ -1,0 +1,10 @@
+test seperti biasa
+#python camera_configuration.py
+
+untuk jadiin .exe
+langsung jalanain build_exe.bat, bisa di command
+
+config.py buat dalam 1 folder
+json dalamin 1 folder samain dengan config.py
+
+pyinstaller --clean --onedir --noconsole --name SmartChurchCameraConfigurator camera_configurator.py

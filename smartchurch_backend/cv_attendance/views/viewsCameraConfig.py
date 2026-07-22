@@ -20,9 +20,6 @@ BACKEND_ROOT = Path(settings.BASE_DIR)
 
 CAMERA_CONFIG_EXE_PATH = (
     BACKEND_ROOT
-    / "config_cam"
-    / "dist"
-    / "SmartChurchCameraConfigurator"
     / "SmartChurchCameraConfigurator.exe"
 )
 

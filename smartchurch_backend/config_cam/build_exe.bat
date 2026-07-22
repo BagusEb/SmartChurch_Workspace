@@ -5,8 +5,9 @@ call venvcam\Scripts\activate
 
 pyinstaller ^
   --clean ^
-  --onedir ^
+  --onefile ^
   --noconsole ^
+  --distpath . ^
   --name SmartChurchCameraConfigurator ^
   camera_configurator.py
 

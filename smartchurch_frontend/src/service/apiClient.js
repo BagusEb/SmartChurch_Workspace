@@ -305,7 +305,7 @@ export const streamChatResponse = async ({ threadId, message }) => {
 
 // --- CV Attendance Session API ---
 export const startAttendanceSession = async (sessionName) => {
-  const res = await apiClient.post('/cv/attendance/start/', {
+  const res = await apiClient.post('/cv/start/', {
     session_name: sessionName,
   });
 

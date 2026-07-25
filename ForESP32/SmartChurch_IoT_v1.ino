@@ -1,0 +1,196 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ld2410.h>
+
+ld2410 radar;
+
+// ======================================================
+// Wi-Fi Configuration
+// ======================================================
+const char* ssid = "TP-Link_2F98";
+const char* password = "12345678";
+const char* serverUrl = "http://192.168.1.102:8001/";
+
+const int BUZZER_PIN = 4;
+
+// ======================================================
+// Timing Configuration
+// ======================================================
+const unsigned long cooldownKirim = 5000;   // Minimum interval between data transmissions (5 seconds)
+unsigned long waktuTerakhirKirim = 0;
+
+// ======================================================
+// Detection Lock (Debounce Mechanism)
+// Prevents multiple detections while a person remains
+// within the sensing area.
+// ======================================================
+bool siapMendeteksi = true;
+unsigned long waktuAreaKosong = 0;
+const unsigned long delayAreaKosong = 2000; // Area must remain empty for 2 seconds before reactivation
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  // ======================================================
+  // Initialize Wi-Fi Connection
+  // ======================================================
+  WiFi.disconnect(true);
+  delay(1000);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to Wi-Fi");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+
+  Serial.println("\n[SUCCESS] Wi-Fi connected.");
+  Serial.print("ESP32 IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  // ======================================================
+  // Initialize LD2410 Radar Sensor
+  // ======================================================
+  Serial1.begin(256000, SERIAL_8N1, 19, 32);
+  radar.begin(Serial1);
+
+  Serial.println("Radar initialized. Waiting for movement...");
+}
+
+void loop() {
+
+  radar.read();
+
+  if (radar.isConnected()) {
+
+    if (radar.presenceDetected()) {
+
+      // Update the last detected timestamp
+      waktuAreaKosong = millis();
+
+      if (siapMendeteksi &&
+          (waktuTerakhirKirim == 0 ||
+           millis() - waktuTerakhirKirim >= cooldownKirim) &&
+          radar.movingTargetDetected()) {
+
+        int distance = radar.movingTargetDistance();
+
+        String direction = "";
+        bool validZone = false;
+
+        // ======================================================
+        // Distance Zone Classification
+        //
+        // 0–249 cm   : Entrance (IN)
+        // 250–259 cm : Dead Zone (Ignored)
+        // 260–300 cm : Exit (OUT)
+        // ======================================================
+
+        // Ignore invalid sensor readings
+        if (distance > 0 && distance < 250) {
+
+          direction = "in";
+          validZone = true;
+
+          Serial.println("\n[IN] Person entered (Distance < 2.5 m)");
+
+          // Double beep
+          digitalWrite(BUZZER_PIN, HIGH);
+          delay(100);
+          digitalWrite(BUZZER_PIN, LOW);
+          delay(100);
+          digitalWrite(BUZZER_PIN, HIGH);
+          delay(100);
+          digitalWrite(BUZZER_PIN, LOW);
+
+        }
+        else if (distance >= 260 && distance <= 800) {
+
+          direction = "out";
+          validZone = true;
+
+          Serial.println("\n[OUT] Person exited (Distance ≥ 2.6 m)");
+
+          // Single long beep
+          digitalWrite(BUZZER_PIN, HIGH);
+          delay(300);
+          digitalWrite(BUZZER_PIN, LOW);
+
+        }
+        else if (distance >= 250 && distance <= 259) {
+
+          // Ignore measurements inside the dead zone
+          Serial.print("\n[INFO] Detection within dead zone (");
+          Serial.print(distance);
+          Serial.println(" cm). Ignored to reduce false triggering.");
+        }
+
+        // ======================================================
+        // Send Data to the Server
+        // ======================================================
+        if (validZone) {
+
+          Serial.print("Sending data to server... Distance: ");
+          Serial.print(distance);
+          Serial.println(" cm");
+
+          if (WiFi.status() == WL_CONNECTED) {
+
+            HTTPClient http;
+
+            http.begin(serverUrl);
+            http.addHeader("Content-Type", "application/json");
+            http.setTimeout(3000);
+
+            String payload =
+              "{\"status\":\"" + direction +
+              "\", \"distance\":" + String(distance) + "}";
+
+            int httpResponseCode = http.POST(payload);
+
+            if (httpResponseCode > 0) {
+
+              Serial.print("SUCCESS! HTTP Response Code: ");
+              Serial.println(httpResponseCode);
+
+            } else {
+
+              Serial.print("FAILED! Error: ");
+              Serial.println(http.errorToString(httpResponseCode));
+            }
+
+            http.end();
+
+          } else {
+
+            Serial.println("Wi-Fi connection lost while sending data.");
+          }
+
+          // Lock detection until the sensing area becomes empty
+          waktuTerakhirKirim = millis();
+          siapMendeteksi = false;
+
+          Serial.println("[INFO] Detection locked. Waiting for the area to clear...");
+        }
+      }
+
+    } else {
+
+      // Reactivate detection after the area has been empty
+      // for the configured delay period.
+      if (!siapMendeteksi &&
+          (millis() - waktuAreaKosong >= delayAreaKosong)) {
+
+        siapMendeteksi = true;
+
+        Serial.println("\n[INFO] Area is clear. Detection reactivated.");
+      }
+    }
+  }
+}

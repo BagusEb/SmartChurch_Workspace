@@ -95,8 +95,6 @@ export default function useChat(initialThreadId = null) {
   const [activeToolCall, setActiveToolCall] = useState(null);
   const hasLoadedHistoryRef = useRef(false);
   const finalMessagesRef = useRef(null);
-  const lastToolCallMessageIdRef = useRef(null);
-  const lastToolCallSignatureRef = useRef(null);
   const lastCanvasRef = useRef('');
 
   useEffect(() => {
@@ -111,8 +109,6 @@ export default function useChat(initialThreadId = null) {
       setMessages([]);
       hasLoadedHistoryRef.current = false;
       finalMessagesRef.current = null;
-      lastToolCallMessageIdRef.current = null;
-      lastToolCallSignatureRef.current = null;
       lastCanvasRef.current = '';
       return;
     }
@@ -182,8 +178,6 @@ export default function useChat(initialThreadId = null) {
     setMessages((prev) => [...prev, { type: 'human', data: { content: trimmedMessage } }]);
     setIsStreaming(true);
     setActiveToolCall(null);
-    lastToolCallMessageIdRef.current = null;
-    lastToolCallSignatureRef.current = null;
 
     let buffer = '';
 
@@ -202,42 +196,6 @@ export default function useChat(initialThreadId = null) {
             }
           }
           if (payload?.messages != null) {
-            const rawMsgs = payload.messages || [];
-            let lastHumanIndex = -1;
-            for (let i = rawMsgs.length - 1; i >= 0; i -= 1) {
-              if (rawMsgs[i]?.type === 'human') {
-                lastHumanIndex = i;
-                break;
-              }
-            }
-
-            let lastAiWithTools = null;
-            let lastAiWithToolsIndex = -1;
-
-            for (let i = rawMsgs.length - 1; i > lastHumanIndex; i -= 1) {
-              const candidate = rawMsgs[i];
-              if (candidate?.type === 'ai' && !candidate?.data?.content && candidate?.data?.tool_calls?.length > 0) {
-                lastAiWithTools = candidate;
-                lastAiWithToolsIndex = i;
-                break;
-              }
-            }
-
-            if (lastAiWithTools) {
-              const tc = lastAiWithTools.data.tool_calls[lastAiWithTools.data.tool_calls.length - 1];
-              const signatureBase = tc?.id || tc?.tool_call_id || tc?.toolCallId || '';
-              const toolCallSignature = lastAiWithTools.id
-                ? `id:${lastAiWithTools.id}`
-                : `sig:${tc?.name || 'tool'}:${signatureBase}:${lastAiWithToolsIndex}`;
-
-              if (toolCallSignature !== lastToolCallSignatureRef.current) {
-                lastToolCallSignatureRef.current = toolCallSignature;
-                lastToolCallMessageIdRef.current = lastAiWithTools.id || null;
-                setActiveToolCall(tc?.name || null);
-              }
-            } else {
-              setActiveToolCall(null);
-            }
             try {
               const newMessages = mapBackendMessages(payload.messages || []);
               const firstNewMessageId =
@@ -270,7 +228,7 @@ export default function useChat(initialThreadId = null) {
         case 'message_chunk': {
           setActiveToolCall(null);
           const chunk = payload?.content ?? payload?.text ?? '';
-          if (!chunk) break;
+          if (!chunk?.trim()) break;
 
           updateAiMessageByStreamId(payload?.id, (prev) => {
             const prevContent = prev?.data?.content || '';
@@ -283,6 +241,12 @@ export default function useChat(initialThreadId = null) {
           });
           break;
         }
+
+        case 'tool_call':
+          if (payload?.name) {
+            setActiveToolCall(payload.name);
+          }
+          break;
 
         case 'conversation_title':
           if (payload?.title) setConversationTitle(payload.title);
@@ -370,7 +334,6 @@ export default function useChat(initialThreadId = null) {
     setCanvas('');
     hasLoadedHistoryRef.current = false;
     finalMessagesRef.current = null;
-    lastToolCallMessageIdRef.current = null;
     lastCanvasRef.current = '';
   };
 

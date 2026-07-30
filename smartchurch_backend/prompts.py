@@ -78,6 +78,11 @@ MAIN_AGENT_SYSTEM_PROMPT = dedent("""
       Untuk analisis follow-up, keaktifan, atau rekomendasi pastoral, filter dengan
       WHERE member_status = 'active'. Jangan sertakan anggota 'moved' dalam analisis reguler
       kecuali pengguna secara eksplisit memintanya.
+    - Total kehadiran dari t_attendance bersifat kumulatif (satu orang hadir 4 sesi = 4 check-in),
+      BUKAN jumlah orang unik. Selalu bedakan: gunakan "Total Check-in" untuk angka kumulatif
+      dan "Jemaat Hadir" untuk jumlah distinct member_id. Rata-rata per sesi dihitung dari
+      Jemaat Hadir / Jumlah Sesi. Jangan tampilkan angka kumulatif sendirian tanpa
+      jumlah orang unik dan jumlah sesi.
     </business_context>
 
     <table_context>
@@ -308,7 +313,7 @@ SCHEMA_CATALOG = {
             "date": "date (wajib)",
             "start_time": "timestamp with time zone (nullable)",
             "end_time": "timestamp with time zone (nullable)",
-            "status": "varchar (wajib, default 'active')",
+            "status": "varchar (wajib, default 'active'; nilai: 'active' = sesi sedang berjalan, 'closed' = sesi telah berakhir)",
         },
     },
     "tm_followup_members": {

@@ -150,7 +150,7 @@ def get_user_id_from_request(request) -> Optional[int]:
 # ---------------------------------------------------------------------------
 
 llm = ChatOpenRouter(
-    model="~moonshotai/kimi-latest",
+    model="moonshotai/kimi-k2.6",
     temperature=0.0,
     streaming=True,
 )
@@ -433,6 +433,23 @@ async def chat(request, thread_id=None):
                 guardrail_denied = False
                 last_messages: list = []
                 last_canvas: str = ""
+                # Tracker to prevent re-emitting tool_call events for the same tool-call ID across multiple chunks.
+                emitted_tool_call_ids: set = set()
+
+                # Seed with tool-call IDs from prior history so follow-up turns
+                # don't re-emit tool_call events (values stream replays full history).
+                try:
+                    prior_messages = (await get_cached_state(tid))["messages"]
+                    for msg in prior_messages:
+                        if getattr(msg, "type", None) != "ai":
+                            continue
+                        for tc in getattr(msg, "tool_calls", None) or []:
+                            tc_id = tc.get("id", "")
+                            if tc_id:
+                                emitted_tool_call_ids.add(tc_id)
+                except Exception:
+                    pass
+
                 try:
                     config = RunnableConfig(configurable={"thread_id": tid})
                     async for chunk in graph.astream(
@@ -452,6 +469,32 @@ async def chat(request, thread_id=None):
                                 canvas_val = data.get("canvas")
                                 if canvas_val is not None:
                                     last_canvas = canvas_val
+
+                                for msg in data["messages"]:
+                                    if (
+                                        hasattr(msg, "tool_calls")
+                                        and msg.tool_calls
+                                        and hasattr(msg, "type")
+                                        and msg.type == "ai"
+                                    ):
+                                        for tc in msg.tool_calls:
+                                            tc_id = tc.get("id", "")
+                                            if (
+                                                tc_id
+                                                and tc_id not in emitted_tool_call_ids
+                                            ):
+                                                emitted_tool_call_ids.add(tc_id)
+                                                await q.put(
+                                                    format_sse(
+                                                        "tool_call",
+                                                        {
+                                                            "name": tc.get("name", ""),
+                                                            "args": tc.get("args", {}),
+                                                            "id": tc_id,
+                                                        },
+                                                    )
+                                                )
+
                                 await q.put(
                                     format_sse(
                                         "values",

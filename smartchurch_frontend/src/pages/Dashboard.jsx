@@ -301,7 +301,7 @@ function AttendanceChart({ data }) {
               />
               <text
                 x={x + barWidth / 2}
-                y={Math.max(axisTop + 10, y - 8)}
+                y={y - 8}
                 textAnchor="middle"
                 className={`text-[11px] font-extrabold ${isCurrentMonth ? 'fill-indigo-700' : 'fill-slate-500'}`}
               >

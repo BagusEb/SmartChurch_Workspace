@@ -14,12 +14,16 @@ echo.
 echo [1/7] Creating backend virtual environment...
 if not exist "%BACKEND_DIR%" (
     echo ERROR: Backend folder not found: "%BACKEND_DIR%"
+    echo Press any key to exit...
+    pause >nul
     exit /b 1
 )
 if not exist "%VENV_PY%" (
     python -m venv "%BACKEND_DIR%\.venv"
     if errorlevel 1 (
         echo ERROR: Failed to create virtual environment.
+        echo Press any key to exit...
+        pause >nul
         exit /b 1
     )
 ) else (
@@ -28,6 +32,8 @@ if not exist "%VENV_PY%" (
     if errorlevel 1 (
         echo ERROR: Existing virtual environment is broken or points to a missing Python installation.
         echo Delete smartchurch_backend\.venv, then run install_windows.bat again.
+        echo Press any key to exit...
+        pause > nul
         exit /b 1
     )
 )
@@ -35,28 +41,42 @@ echo.
 
 echo [2/7] Preparing Python package installer...
 "%VENV_PY%" -m pip install --upgrade pip
-if errorlevel 1 exit /b 1
-echo.
-
-
-echo [3/7] Installing Python dependencies...
-"%VENV_PY%" -m pip install -r "%REQUIREMENTS%"
-if errorlevel 1 exit /b 1
-echo.
-
-echo [4/7] Reinstalling ONNX Runtime packages to ensure GPU support...
-"%VENV_PY%" -m pip uninstall -y onnxruntime onnxruntime-gpu
 if errorlevel 1 (
-    echo ERROR: Failed to uninstall existing ONNX Runtime packages.
+    echo ERROR: Failed to upgrade pip.
+    echo Press any key to exit...
+    pause > nul
     exit /b 1
 )
-"%VENV_PY%" -m pip install --no-cache-dir --force-reinstall onnxruntime-gpu
-if errorlevel 1 (
-    echo ERROR: Failed to reinstall onnxruntime-gpu.
-    exit /b 1
-)
-
 echo.
+
+
+@REM echo [3/7] Installing Python dependencies...
+@REM "%VENV_PY%" -m pip install -r "%REQUIREMENTS%"
+@REM if errorlevel 1 (
+@REM     echo ERROR: Failed to install Python dependencies.
+@REM     echo Press any key to exit...
+@REM     pause > nul
+@REM     exit /b 1
+@REM )
+@REM echo.
+
+@REM echo [4/7] Reinstalling ONNX Runtime packages to ensure GPU support...
+@REM "%VENV_PY%" -m pip uninstall -y onnxruntime onnxruntime-gpu
+@REM if errorlevel 1 (
+@REM     echo ERROR: Failed to uninstall existing ONNX Runtime packages.
+@REM     echo Press any key to exit...
+@REM     pause > nul
+@REM     exit /b 1
+@REM )
+@REM "%VENV_PY%" -m pip install --no-cache-dir --force-reinstall onnxruntime-gpu
+@REM if errorlevel 1 (
+@REM     echo ERROR: Failed to reinstall onnxruntime-gpu.
+@REM     echo Press any key to exit...
+@REM     pause > nul
+@REM     exit /b 1
+@REM )
+
+@REM echo.
 
 echo [5/7] Checking ONNX Runtime providers...
 "%VENV_PY%" -c "import onnxruntime as ort; providers = ort.get_available_providers(); print('ONNX Runtime providers:', ', '.join(providers)); raise SystemExit(0 if 'CUDAExecutionProvider' in providers else 2)"
@@ -65,6 +85,8 @@ if errorlevel 2 (
 ) else (
     if errorlevel 1 (
         echo ERROR: Could not import onnxruntime. Check the dependency installation output above.
+        echo Press any key to exit...
+        pause > nul
         exit /b 1
     ) else (
         echo GPU ready: CUDAExecutionProvider is active.
@@ -76,6 +98,8 @@ echo [6/7] Starting database for initial Django setup...
 docker compose up -d db
 if errorlevel 1 (
     echo ERROR: Docker database startup failed. Check if Docker Desktop is running.
+    echo Press any key to exit...
+    pause > nul
     exit /b 1
 )
 
@@ -86,20 +110,24 @@ for /l %%i in (1,1,30) do (
     timeout /t 2 /nobreak >nul
 )
 echo ERROR: PostgreSQL did not become ready in time.
+echo Press any key to exit...
+pause > nul
 exit /b 1
 
 :db_ready
 echo Database is ready.
 echo.
 
-echo [7/7] Running Django database setup...
+@REM echo [7/7] Running Django database setup...
 pushd "%BACKEND_DIR%"
-"%VENV_PY%" manage.py migrate --noinput
-if errorlevel 1 (
-    popd
-    echo ERROR: Django migration failed.
-    exit /b 1
-)
+@REM "%VENV_PY%" manage.py migrate --noinput
+@REM if errorlevel 1 (
+@REM     popd
+@REM     echo ERROR: Django migration failed.
+@REM     echo Press any key to exit...
+@REM     pause > nul
+@REM     exit /b 1
+@REM )
 
 "%VENV_PY%" manage.py createsuperuser --noinput
 if errorlevel 1 (
@@ -117,6 +145,8 @@ if exist temp.sql (
 if errorlevel 1 (
     popd
     echo ERROR: collectstatic failed.
+    echo Press any key to exit...
+    pause > nul
     exit /b 1
 )
 popd
@@ -133,6 +163,8 @@ echo Building Docker frontend image...
 docker compose build frontend
 if errorlevel 1 (
     echo ERROR: Docker frontend build failed. Check if Docker Desktop is running
+    echo Press any key to exit...
+    pause > nul
     exit /b 1
 )
 echo.
@@ -142,5 +174,7 @@ echo Server startup: start_servers.bat
 echo Frontend URL: http://localhost
 echo Backend URL: http://localhost:8000
 echo Run start_servers.bat when you are ready to start the full app.
+echo Press any key to exit...
+pause > nul
 
 endlocal

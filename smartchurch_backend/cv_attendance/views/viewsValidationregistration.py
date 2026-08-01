@@ -205,10 +205,10 @@ def build_registration_flat_payload(request):
     )
 
     page_size = safe_int(
-        request.GET.get("page_size", 20),
-        default=20,
+        request.GET.get("page_size", 50),
+        default=50,
         min_value=1,
-        max_value=20,
+        max_value=50,
     )
 
     queryset = get_registration_queryset()

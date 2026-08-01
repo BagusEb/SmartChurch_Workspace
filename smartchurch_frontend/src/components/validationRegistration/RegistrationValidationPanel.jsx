@@ -35,7 +35,7 @@ import {
 
 import { formatTime } from "./registrationHelpers";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 
 function getPaginationItems(currentPage, totalPages) {
   const total = Math.max(Number(totalPages) || 1, 1);

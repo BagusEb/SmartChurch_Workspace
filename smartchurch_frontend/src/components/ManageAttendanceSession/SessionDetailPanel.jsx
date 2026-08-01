@@ -7,8 +7,9 @@ import { createElement, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Users, UserCheck, UserX, CheckCircle2,
-  Clock, Calendar, MousePointerClick, Inbox, ShieldAlert
+  Clock, Calendar, MousePointerClick, Inbox, ShieldAlert, Eye, X
 } from 'lucide-react';
+import { getAttendanceFaceImage } from '../../service/apiClient';
 
 // ── Helpers ──────────────────────────────────────────────────
 const MONTHS = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -49,13 +50,31 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
   const [markingId,     setMarkingId]     = useState(null);        // member currently being saved
   const [markedIds,     setMarkedIds]     = useState(new Set());   // optimistic "done" set
   const [confirmMember, setConfirmMember] = useState(null);        // { id, name } — pending confirm
+  const [faceModal,     setFaceModal]     = useState(null);        // { name, facedetectionId } — image modal
 
   // Reset when session changes
   useEffect(() => {
     setActiveTab('members');
     setMarkedIds(new Set());
     setConfirmMember(null);
+    setFaceModal(null);
   }, [session?.session_id]);
+
+  // ── Fetch face image from t_timlinedata_record ────────────
+  const handleViewFace = async (person) => {
+    if (!person?.facedetection_id) return;
+    setFaceModal({ name: person.full_name || person.name || '—', facedetectionId: person.facedetection_id, loading: true, error: null });
+    try {
+      const data = await getAttendanceFaceImage(person.facedetection_id);
+      setFaceModal(prev => prev && { ...prev, image: data.face_image, loading: false });
+    } catch (e) {
+      setFaceModal(prev => prev && {
+        ...prev,
+        loading: false,
+        error: e.response?.data?.error || 'Gagal memuat gambar wajah.',
+      });
+    }
+  };
 
   // ── Called after user confirms in popup ──────────────────
   const executeMark = async () => {
@@ -99,6 +118,18 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
           name={confirmMember.name}
           onConfirm={executeMark}
           onCancel={() => setConfirmMember(null)}
+        />,
+        document.body
+      )}
+
+      {/* ── Face image popup ────────────────────────────────── */}
+      {faceModal && createPortal(
+        <FaceImageModal
+          name={faceModal.name}
+          image={faceModal.image}
+          loading={faceModal.loading}
+          error={faceModal.error}
+          onClose={() => setFaceModal(null)}
         />,
         document.body
       )}
@@ -230,6 +261,17 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
                         <CheckCircle2 size={12} /> Hadir
                       </span>
                     )}
+
+                    {/* Face image — shown when attendance has a face detection record */}
+                    {person.facedetection_id && (
+                      <button
+                        onClick={() => handleViewFace(person)}
+                        title="Lihat gambar wajah saat absensi"
+                        className="flex-shrink-0 p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                      >
+                        <Eye size={16} />
+                      </button>
+                    )}
                   </li>
                 );
               })}
@@ -297,6 +339,62 @@ function ConfirmModal({ name, onConfirm, onCancel }) {
           >
             Ya, Tandai Hadir
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Face Image Modal ──────────────────────────────────────────
+function FaceImageModal({ name, image, loading, error, onClose }) {
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+      style={{ animation: 'backdropIn .2s ease' }}
+    >
+      <style>{`
+        @keyframes backdropIn { from { opacity:0; } to { opacity:1; } }
+        @keyframes modalIn {
+          from { opacity:0; transform:scale(0.92) translateY(16px); }
+          to   { opacity:1; transform:scale(1)    translateY(0);    }
+        }
+        .face-modal-card { animation: modalIn .25s cubic-bezier(0.34,1.56,0.64,1); }
+      `}</style>
+
+      <div className="face-modal-card bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="min-w-0">
+            <h3 className="text-sm font-extrabold text-slate-800 truncate">{name}</h3>
+            <p className="text-[11px] text-slate-400 font-medium">Gambar wajah saat absensi</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all flex-shrink-0"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5">
+          {loading ? (
+            <div className="w-full aspect-square bg-slate-100 rounded-xl flex flex-col items-center justify-center gap-2 animate-pulse">
+              <span className="w-6 h-6 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+              <span className="text-xs text-slate-400 font-medium">Memuat gambar…</span>
+            </div>
+          ) : error ? (
+            <div className="w-full aspect-square bg-rose-50 rounded-xl flex flex-col items-center justify-center gap-2 text-center px-6">
+              <ShieldAlert size={24} className="text-rose-300" />
+              <p className="text-xs font-medium text-rose-400">{error}</p>
+            </div>
+          ) : (
+            <img
+              src={image}
+              alt={`Wajah ${name}`}
+              className="w-full aspect-square object-cover rounded-xl shadow-sm"
+            />
+          )}
         </div>
       </div>
     </div>

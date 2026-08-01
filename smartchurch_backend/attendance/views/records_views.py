@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 import zipfile
@@ -460,6 +461,41 @@ class TimelineDataRecordViewSet(viewsets.ModelViewSet):
 class AttendanceViewSet(viewsets.ModelViewSet):
     queryset = Attendance.objects.all().order_by('-check_in_time')
     serializer_class = AttendanceSerializer
+
+    @action(detail=False, methods=["get"], url_path="face-image")
+    def face_image(self, request):
+        """Return the face image captured during attendance from t_timlinedata_record."""
+        attendance_id = request.query_params.get("attendance_id")
+        facedetection_id = request.query_params.get("facedetection_id")
+
+        try:
+            if attendance_id:
+                attendance = Attendance.objects.select_related("facedetection").get(id=attendance_id)
+            elif facedetection_id:
+                attendance = Attendance.objects.select_related("facedetection").filter(
+                    facedetection_id=facedetection_id
+                ).first()
+            else:
+                return Response(
+                    {"error": "attendance_id or facedetection_id parameter is required"},
+                    status=400,
+                )
+        except Attendance.DoesNotExist:
+            return Response({"error": "Attendance not found."}, status=404)
+
+        if not attendance:
+            return Response({"error": "No attendance linked to that face detection."}, status=404)
+
+        record = attendance.facedetection
+        if not record or not record.face_image:
+            return Response({"error": "No face image recorded for this attendance."}, status=404)
+
+        try:
+            encoded = base64.b64encode(record.face_image).decode("utf-8")
+        except Exception:
+            return Response({"error": "Failed to encode face image."}, status=500)
+
+        return Response({"face_image": f"data:image/jpeg;base64,{encoded}"})
 
 
 class WorshipSessionViewSet(viewsets.ModelViewSet):
@@ -1100,6 +1136,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                     "full_name": a.member.full_name,
                     "phone": a.member.phone,
                     "check_in_time": a.check_in_time,
+                    "facedetection_id": a.facedetection_id,
                 }
                 attended_member_ids.add(a.member.id)
             elif a.guest:
@@ -1111,6 +1148,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                     "phone": a.guest.phone,
                     "visit_count": a.guest.visit_count,
                     "check_in_time": a.check_in_time,
+                    "facedetection_id": a.facedetection_id,
                 }
 
         # Calculate absent members

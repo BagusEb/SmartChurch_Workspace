@@ -267,6 +267,13 @@ export const getSessionAttendees = async (sessionId) => {
   return response.data;
 };
 
+export const getAttendanceFaceImage = async (facedetectionId) => {
+  const response = await apiClient.get('/attendances/face-image/', {
+    params: { facedetection_id: facedetectionId },
+  });
+  return response.data;
+};
+
 export const markMemberPresent = async (sessionId, memberId) => {
   const response = await apiClient.post('/reports/mark-member-present/', { session_id: sessionId, member_id: memberId });
   return response.data;

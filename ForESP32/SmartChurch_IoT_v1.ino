@@ -7,9 +7,9 @@ ld2410 radar;
 // ======================================================
 // Wi-Fi Configuration
 // ======================================================
-const char* ssid = "TP-Link_2F98";
-const char* password = "12345678";
-const char* serverUrl = "http://192.168.1.102:8001/";
+const char* ssid = "your_wifi_name";
+const char* password = "your_wifi_password";
+const char* serverUrl = "http://<Mini_PC_local_IP>:8001/";
 
 const int BUZZER_PIN = 4;
 
@@ -110,7 +110,7 @@ void loop() {
           digitalWrite(BUZZER_PIN, LOW);
 
         }
-        else if (distance >= 260 && distance <= 800) {
+        else if (distance >= 260 && distance <= 300) {
 
           direction = "out";
           validZone = true;

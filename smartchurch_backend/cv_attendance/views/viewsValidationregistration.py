@@ -185,7 +185,7 @@ def build_registration_flat_payload(request):
 
     Query params:
     - page: default 1
-    - page_size: default 20, max 20
+    - page_size: default 50, max 50
     - include_encoding: true/false, default false
 
     Response utama:
@@ -446,12 +446,12 @@ def _registration_validation_faces_response(request):
 @require_http_methods(["GET"])
 def registration_validation_faces(request):
     """
-    GET /api/cv/validation-registration/faces/?page=1&page_size=20
+    GET /api/cv/validation-registration/faces/?page=1&page_size=50
 
     Endpoint baru untuk mode registration:
     - Tidak grouping.
     - Flat list.
-    - Pagination per 20 gambar.
+    - Pagination per 50 gambar.
     """
 
     return _registration_validation_faces_response(request)

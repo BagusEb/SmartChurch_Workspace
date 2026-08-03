@@ -80,6 +80,7 @@ const getDefaultStats = (mode = 'attendance') => {
 
   return {
     known: 0,
+    guest: 0,
     ambiguous: 0,
     unknown: 0,
   };
@@ -173,12 +174,14 @@ export default function Attendance() {
   const totalDetections = isRegistrationMode
     ? Number(stats.detected || 0)
     : Number(stats.known || 0) +
+      Number(stats.guest || 0) +
       Number(stats.ambiguous || 0) +
       Number(stats.unknown || 0);
 
   const secondCardValue = isRegistrationMode
     ? Number(stats.stored || 0)
-    : Number(stats.known || 0);
+    : Number(stats.known || 0) +
+      Number(stats.guest || 0);
 
   const thirdCardValue = isRegistrationMode
     ? Number(stats.skipped_same_track || 0)
@@ -208,10 +211,16 @@ export default function Attendance() {
       ]
     : [
         {
-          label: 'Known',
+          label: 'Member',
           val: stats.known || 0,
           color: 'text-emerald-400',
         },
+        {
+          label: 'Guest',
+          val: stats.guest || 0,
+          color: 'text-blue-400',
+        },
+        
         {
           label: 'Ambiguous',
           val: stats.ambiguous || 0,
@@ -1140,6 +1149,7 @@ export default function Attendance() {
                   const confPct = Math.round(similarityValue * 100);
 
                   const isKnown = log.status === 'KNOWN';
+                  const isGuest = log.status === 'GUEST';
                   const isRegistrationLog =
                     log.status === 'REGISTRATION' || log.status === 'ENROLLING';
                   const isUpdate = log.is_update;
@@ -1153,6 +1163,10 @@ export default function Attendance() {
                         {isKnown ? (
                           <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
                             <CheckCircle size={14} className="text-emerald-500" />
+                          </div>
+                        ) : isGuest ? (
+                          <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center">
+                            <UserCheck size={14} className="text-blue-500" />
                           </div>
                         ) : isRegistrationLog ? (
                           <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
@@ -1170,6 +1184,11 @@ export default function Attendance() {
                           <p className="text-sm font-semibold text-slate-800 truncate">
                             {log.name}
                           </p>
+                          {isGuest && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-sky-50 text-sky-600 flex-shrink-0">
+                              guest
+                            </span>
+                          )}
 
                           {isRegistrationLog && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-600 flex-shrink-0">

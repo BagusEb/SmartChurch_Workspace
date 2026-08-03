@@ -9,6 +9,7 @@ STATUS_PRIORITY = {
     "TRACKING": 0,
     "AMBIGUOUS": 1,
     "UNKNOWN": 2,
+    "GUEST": 3,
     "KNOWN": 3,
 }
 
@@ -219,10 +220,16 @@ class SimpleFaceTracker:
                     # Current recognition result.
                     "recognized": False,
                     "identity": "TRACKING",
+                    "identity_type": None,
                     "recognition_status": "TRACKING",
                     "recognition_similarity": 0.0,
+
                     "matched_member_id": None,
                     "candidate_member_id": None,
+
+                    "matched_guest_id": None,
+                    "candidate_guest_id": None,
+
                     "matched_name": None,
 
                     # Retry metadata.
@@ -355,7 +362,9 @@ class SimpleFaceTracker:
         track_id,
         status,
         display_name,
+        identity_type=None,
         member_id=None,
+        guest_id=None,
         similarity=0.0,
         det_score=0.0,
         face_size=0,
@@ -364,15 +373,12 @@ class SimpleFaceTracker:
         recognized_at=None,
     ):
         """
-        Simpan hasil recognition terbaru dan perbarui best_result jika lebih baik.
+        Menyimpan recognition member, guest, unknown, atau ambiguous.
 
-        Return:
-            {
-                "best_updated": bool,
-                "status_changed": bool,
-                "best_result": dict | None,
-            }
+        KNOWN menggunakan member_id.
+        GUEST menggunakan guest_id.
         """
+
         track = self.tracks.get(track_id)
 
         if not track or track.get("finalized"):
@@ -382,7 +388,20 @@ class SimpleFaceTracker:
                 "best_result": None,
             }
 
-        status = str(status or "AMBIGUOUS").upper()
+        status = str(
+            status or "AMBIGUOUS"
+        ).upper()
+
+        identity_type = str(
+            identity_type or ""
+        ).strip().lower() or None
+
+        if status == "KNOWN":
+            identity_type = "member"
+
+        elif status == "GUEST":
+            identity_type = "guest"
+
         similarity = float(similarity or 0.0)
         det_score = float(det_score or 0.0)
         face_size = int(face_size or 0)
@@ -398,20 +417,41 @@ class SimpleFaceTracker:
         track["last_recognition_face_size"] = face_size
         track["last_recognition_det_score"] = det_score
 
-        track["recognized"] = status == "KNOWN"
+        track["recognized"] = status in {
+            "KNOWN",
+            "GUEST",
+        }
+
+        track["identity_type"] = identity_type
         track["recognition_status"] = status
         track["identity"] = display_name
         track["recognition_similarity"] = similarity
+
+        # Candidate tetap disimpan untuk UNKNOWN/AMBIGUOUS.
         track["candidate_member_id"] = member_id
+        track["candidate_guest_id"] = guest_id
+
+        # Matched final hanya diisi ketika status sudah final.
         track["matched_member_id"] = (
-            member_id if status == "KNOWN" else None
+            member_id
+            if status == "KNOWN"
+            else None
         )
+
+        track["matched_guest_id"] = (
+            guest_id
+            if status == "GUEST"
+            else None
+        )
+
         track["matched_name"] = display_name
 
         snapshot = {
             "status": status,
             "display_name": display_name,
+            "identity_type": identity_type,
             "member_id": member_id,
+            "guest_id": guest_id,
             "similarity": similarity,
             "det_score": det_score,
             "face_size": face_size,

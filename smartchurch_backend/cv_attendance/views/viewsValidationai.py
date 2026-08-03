@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from attendance.models import (
+    Attendance,
     WorshipSession,
     TimelineDataRecord,
     Member,
@@ -79,105 +80,53 @@ def bool_query(request, key, default=True):
 def normalize_text(value):
     return (value or "").strip()
 
-
-def normalize_identity_value(value):
+def get_latest_guest_face_record_map(guests):
     """
-    Untuk grouping data guest yang sebenarnya orang yang sama:
-    - None dan "" dianggap sama
-    - spasi depan belakang dibuang
-    - double space dirapikan
-    - case-insensitive
-    """
+    Membuat mapping:
 
-    value = normalize_text(value)
-    value = " ".join(value.split())
-    return value.lower()
+    {
+        guest_id: TimelineDataRecord
+    }
 
-
-def get_guest_dedupe_key(guest):
-    """
-    Identity guest untuk list frontend:
-    full_name + first_visit + from_where
-
-    Jadi kalau nama sama tapi first_visit/from_where beda,
-    tetap dianggap orang/identity berbeda.
+    Evidence diambil dari attendance terbaru Guest.
     """
 
-    first_visit_key = guest.first_visit.isoformat() if guest.first_visit else ""
+    guest_ids = [
+        guest.id
+        for guest in guests
+        if guest and guest.id
+    ]
 
-    return (
-        normalize_identity_value(guest.full_name),
-        first_visit_key,
-        normalize_identity_value(guest.from_where),
+    if not guest_ids:
+        return {}
+
+    attendances = (
+        Attendance.objects
+        .filter(
+            guest_id__in=guest_ids,
+            facedetection__isnull=False,
+            facedetection__face_image__isnull=False,
+        )
+        .select_related("facedetection")
+        .order_by(
+            "guest_id",
+            "-check_in_time",
+            "-created_at",
+            "-id",
+        )
     )
 
+    result = {}
 
-def guest_is_better_for_frontend(candidate, current):
-    """
-    Pilih row guest terbaik untuk ditampilkan ke frontend.
+    for attendance in attendances:
+        if attendance.guest_id in result:
+            continue
 
-    Prioritas:
-    1. visit_count paling tinggi
-    2. last_visit paling baru
-    3. created_at paling baru
-    4. id paling besar
-    """
+        result[attendance.guest_id] = (
+            attendance.facedetection
+        )
 
-    candidate_visit_count = candidate.visit_count or 0
-    current_visit_count = current.visit_count or 0
-
-    if candidate_visit_count != current_visit_count:
-        return candidate_visit_count > current_visit_count
-
-    candidate_last_visit = candidate.last_visit
-    current_last_visit = current.last_visit
-
-    if candidate_last_visit != current_last_visit:
-        if candidate_last_visit is None:
-            return False
-        if current_last_visit is None:
-            return True
-        return candidate_last_visit > current_last_visit
-
-    candidate_created_at = candidate.created_at
-    current_created_at = current.created_at
-
-    if candidate_created_at != current_created_at:
-        if candidate_created_at is None:
-            return False
-        if current_created_at is None:
-            return True
-        return candidate_created_at > current_created_at
-
-    return candidate.id > current.id
-
-
-def get_latest_unique_guests_for_frontend(guests_queryset):
-    """
-    Dari banyak row Guest, kirim hanya 1 row per identity:
-    full_name + first_visit + from_where.
-
-    Yang dipilih adalah visit_count paling tinggi.
-    """
-
-    unique_guests = {}
-
-    for guest in guests_queryset:
-        key = get_guest_dedupe_key(guest)
-        current_guest = unique_guests.get(key)
-
-        if current_guest is None or guest_is_better_for_frontend(guest, current_guest):
-            unique_guests[key] = guest
-
-    return sorted(
-        unique_guests.values(),
-        key=lambda guest: (
-            normalize_identity_value(guest.full_name),
-            guest.first_visit or timezone.datetime.min.date(),
-            normalize_identity_value(guest.from_where),
-        ),
-    )
-
+    return result
 # ============================================================
 # Helper: serialize Member untuk frontend validation AI
 # ============================================================
@@ -198,18 +147,42 @@ def serialize_member(member):
 # ============================================================
 # Helper: serialize Guest untuk frontend validation AI
 # ============================================================
-def serialize_guest(guest):
+def serialize_guest(
+    guest,
+    face_record=None,
+):
     return {
         "id": guest.id,
         "full_name": guest.full_name,
         "phone": guest.phone,
         "visit_count": guest.visit_count,
-        "first_visit": guest.first_visit.isoformat() if guest.first_visit else None,
-        "last_visit": guest.last_visit.isoformat() if guest.last_visit else None,
+        "first_visit": (
+            guest.first_visit.isoformat()
+            if guest.first_visit
+            else None
+        ),
+        "last_visit": (
+            guest.last_visit.isoformat()
+            if guest.last_visit
+            else None
+        ),
         "from_where": guest.from_where,
         "notes": guest.notes,
-        "face_image": image_bytes_to_base64(guest.face_image),
-        "created_at": guest.created_at.isoformat() if guest.created_at else None,
+        "face_image": image_bytes_to_base64(
+            face_record.face_image
+            if face_record
+            else None
+        ),
+        "face_record_id": (
+            face_record.id
+            if face_record
+            else None
+        ),
+        "created_at": (
+            guest.created_at.isoformat()
+            if guest.created_at
+            else None
+        ),
     }
 
 
@@ -818,24 +791,20 @@ def validation_ai_session_detail(request, session_id):
 @require_http_methods(["GET"])
 def validation_ai_member_guest_data(request):
     """
-    Dipakai frontend validation AI untuk:
-    - dropdown / search jemaat lama
-    - pencarian tamu lama
+    Data pendukung Validation AI:
 
-    Query optional:
-    ?q=nama
+    - Member aktif.
+    - Guest yang belum dikonversi menjadi Member.
 
-    Untuk guests:
-    - Guest table menyimpan 1 row per kunjungan.
-    - Frontend tidak perlu melihat duplicate orang yang sama.
-    - Maka guest dikirim unique berdasarkan:
-      full_name + first_visit + from_where.
-    - Jika ada beberapa row dengan identity sama,
-      yang dikirim adalah visit_count paling tinggi.
+    Satu Guest hanya mempunyai satu row di t_guest.
+    Face image Guest diambil dari attendance evidence terbaru.
     """
 
     try:
-        keyword = request.GET.get("q", "").strip()
+        keyword = request.GET.get(
+            "q",
+            "",
+        ).strip()
 
         members = (
             Member.objects
@@ -845,15 +814,12 @@ def validation_ai_member_guest_data(request):
 
         guests = (
             Guest.objects
-            .all()
+            .filter(
+                converted_to_member__isnull=True
+            )
             .order_by(
                 "full_name",
-                "first_visit",
-                "from_where",
-                "-visit_count",
-                "-last_visit",
-                "-created_at",
-                "-id",
+                "id",
             )
         )
 
@@ -871,10 +837,29 @@ def validation_ai_member_guest_data(request):
                 | Q(from_where__icontains=keyword)
             )
 
-        unique_guests = get_latest_unique_guests_for_frontend(guests)
+        member_list = list(members)
+        guest_list = list(guests)
 
-        members_data = [serialize_member(member) for member in members]
-        guests_data = [serialize_guest(guest) for guest in unique_guests]
+        guest_face_record_map = (
+            get_latest_guest_face_record_map(
+                guest_list
+            )
+        )
+
+        members_data = [
+            serialize_member(member)
+            for member in member_list
+        ]
+
+        guests_data = [
+            serialize_guest(
+                guest,
+                face_record=guest_face_record_map.get(
+                    guest.id
+                ),
+            )
+            for guest in guest_list
+        ]
 
         return JsonResponse(
             {
@@ -891,7 +876,10 @@ def validation_ai_member_guest_data(request):
         return JsonResponse(
             {
                 "success": False,
-                "message": "Gagal mengambil data member dan guest untuk validasi AI",
+                "message": (
+                    "Gagal mengambil data member dan "
+                    "Guest untuk validasi AI"
+                ),
                 "error": str(e),
             },
             status=500,

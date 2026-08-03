@@ -131,15 +131,23 @@ GPU_DEVICE_ID = 0
 MIN_FACE_SIZE = 10  #ukuran berapa pixel agar wajah di terima testing 25  yah ntr ubah lagi makin kecil kalau tidak terdeteksi
 
 # ── ATTENDANCE MATCHING THRESHOLDS ────────────────────────────
-MATCH_THRESHOLD_KNOWN     = 0.45 #minimal kemiripan untuk dianggap KNOWN
-MIN_DETECTION_SCORE       = 0.20  #seberapa yakin dia itu wajah
+MATCH_THRESHOLD_KNOWN     = 0.45 #(%)minimal kemiripan untuk dianggap KNOWN
+# Guest menggunakan threshold recognition yang sama dengan member.
+MATCH_THRESHOLD_GUEST = MATCH_THRESHOLD_KNOWN
+
+# Maksimal jumlah evidence attendance lama yang dimuat per guest.
+# Beberapa embedding membantu jika angle/kondisi wajah berbeda,
+# tetapi jumlahnya dibatasi agar matrix matcher tidak terus membesar.
+MAX_GUEST_REFERENCE_EMBEDDINGS_PER_GUEST = 5
+
+MIN_DETECTION_SCORE       = 0.20  #(%)eberapa yakin dia itu wajah 20
 DETECTION_COOLDOWN        = 30    # detik cooldown untuk KNOWN (1 timeline row per window)
-MIN_FACE_SIZE_FOR_RECOGNITION = 18
+MIN_FACE_SIZE_FOR_RECOGNITION = 18 #(px)
 
 # ── ATTENDANCE TRACKER ────────────────────────────────────────
-TRACKER_IOU_THRESHOLD = 0.18
-TRACKER_MAX_CENTER_DISTANCE = 80
-TRACKER_MAX_LOST_SECONDS = 1.2
+TRACKER_IOU_THRESHOLD = 0.18 #(%) overlap bounding in track yg sama
+TRACKER_MAX_CENTER_DISTANCE = 80#px jarak antar center bounding box
+TRACKER_MAX_LOST_SECONDS = 1.2 #(s)proses aftee 1.2 second
 
 # Recognition dimulai sejak observasi pertama agar track singkat tetap
 # memiliki evidence AMBIGUOUS/UNKNOWN yang dapat difinalisasi.
@@ -147,8 +155,8 @@ MIN_TRACK_SEEN_COUNT_FOR_RECOGNITION = 1
 
 # Recognition tetap diulang selama track aktif, tetapi tidak setiap frame.
 RECOGNITION_RETRY_INTERVAL_AMBIGUOUS = 0.20 #second
-RECOGNITION_RETRY_INTERVAL_UNKNOWN = 0.35
-RECOGNITION_RETRY_INTERVAL_KNOWN = 0.35
+RECOGNITION_RETRY_INTERVAL_UNKNOWN = 0.35 #second
+RECOGNITION_RETRY_INTERVAL_KNOWN = 0.35 #second
 
 # Retry dapat dilakukan lebih cepat ketika kualitas wajah meningkat.
 RECOGNITION_FORCE_SIZE_GROWTH_RATIO = 1.15

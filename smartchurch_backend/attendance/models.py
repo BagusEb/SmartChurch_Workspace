@@ -134,9 +134,6 @@ class Guest(models.Model):
     converted_to_member = models.ForeignKey(
         Member, on_delete=models.SET_NULL, null=True, blank=True
     )
-    # Tambah face_image byte
-    face_image = models.BinaryField(blank=True, null=True)
-    face_encoding = models.JSONField(blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     from_where = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)

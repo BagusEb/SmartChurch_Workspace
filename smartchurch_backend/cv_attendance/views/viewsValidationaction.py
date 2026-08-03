@@ -19,7 +19,10 @@ from attendance.models import (
     WorshipSession,
 )
 
-from ..config import GUEST_SAME_FACE_SIM
+from ..config import (
+    GUEST_SAME_FACE_SIM,
+    MAX_GUEST_REFERENCE_EMBEDDINGS_PER_GUEST,
+)
 
 def ok_response(message="Success", data=None, status=200):
     payload = {
@@ -104,22 +107,93 @@ def cosine_similarity(encoding_a, encoding_b):
         return 0.0
 
 
-def serialize_guest_for_validation(guest, similarity=None):
+def get_latest_guest_face_record(guest):
+    """
+    Mengambil evidence wajah terbaru milik Guest melalui:
+
+    Guest
+        -> Attendance
+        -> TimelineDataRecord
+
+    Guest tidak lagi menyimpan face_image atau face_encoding.
+    """
+
+    attendance = (
+        Attendance.objects
+        .filter(
+            guest=guest,
+            facedetection__isnull=False,
+            facedetection__face_image__isnull=False,
+        )
+        .select_related("facedetection")
+        .order_by(
+            "-check_in_time",
+            "-created_at",
+            "-id",
+        )
+        .first()
+    )
+
+    if not attendance:
+        return None
+
+    return attendance.facedetection
+
+
+def serialize_guest_for_validation(
+    guest,
+    similarity=None,
+    face_record=None,
+):
+    """
+    Serialize Guest untuk halaman Validation AI.
+
+    Face image tidak dibaca dari t_guest, tetapi dari
+    TimelineDataRecord yang menjadi evidence attendance Guest.
+    """
+
+    if face_record is None or not face_record.face_image:
+        face_record = get_latest_guest_face_record(guest)
+
     data = {
         "id": guest.id,
         "full_name": guest.full_name,
         "phone": guest.phone,
         "visit_count": guest.visit_count,
-        "first_visit": guest.first_visit.isoformat() if guest.first_visit else None,
-        "last_visit": guest.last_visit.isoformat() if guest.last_visit else None,
+        "first_visit": (
+            guest.first_visit.isoformat()
+            if guest.first_visit
+            else None
+        ),
+        "last_visit": (
+            guest.last_visit.isoformat()
+            if guest.last_visit
+            else None
+        ),
         "from_where": guest.from_where,
         "notes": guest.notes,
-        "face_image": image_bytes_to_base64(guest.face_image),
-        "created_at": guest.created_at.isoformat() if guest.created_at else None,
+        "face_image": image_bytes_to_base64(
+            face_record.face_image
+            if face_record
+            else None
+        ),
+        "face_record_id": (
+            face_record.id
+            if face_record
+            else None
+        ),
+        "created_at": (
+            guest.created_at.isoformat()
+            if guest.created_at
+            else None
+        ),
     }
 
     if similarity is not None:
-        data["similarity"] = round(similarity * 100, 2)
+        data["similarity"] = round(
+            float(similarity) * 100,
+            2,
+        )
 
     return data
 
@@ -155,99 +229,6 @@ def normalize_identity_value(value):
     return value.lower()
 
 
-def find_duplicate_guest_attendance(session, full_name, first_visit, from_where):
-    """
-    Cek apakah dalam worship session yang sama sudah ada attendance guest
-    dengan identity yang sama.
-
-    Identity yang dicek:
-    - guest.full_name
-    - guest.first_visit
-    - guest.from_where
-
-    Catatan:
-    Karena Guest dibuat 1 row per kunjungan, pengecekan duplicate harus
-    dilakukan dari Attendance -> Guest pada session yang sama.
-    """
-
-    target_name = normalize_identity_value(full_name)
-    target_from_where = normalize_identity_value(from_where)
-
-    attendances = (
-        Attendance.objects
-        .select_for_update()
-        .select_related("guest")
-        .filter(
-            session=session,
-            guest__isnull=False,
-            guest__first_visit=first_visit,
-        )
-    )
-
-    for attendance in attendances:
-        guest = attendance.guest
-
-        if not guest:
-            continue
-
-        guest_name = normalize_identity_value(guest.full_name)
-        guest_from_where = normalize_identity_value(guest.from_where)
-
-        if guest_name == target_name and guest_from_where == target_from_where:
-            return attendance
-
-    return None
-
-
-def get_guest_identity_queryset(full_name, phone):
-    """
-    Karena desain Guest menyimpan satu row per kunjungan,
-    orang yang sama dicari berdasarkan nama + phone.
-    Kalau phone kosong, fallback berdasarkan nama saja.
-    """
-
-    qs = Guest.objects.select_for_update().filter(
-        full_name__iexact=normalize_text(full_name)
-    )
-
-    phone = normalize_text(phone)
-
-    if phone:
-        qs = qs.filter(phone=phone)
-
-    return qs.order_by("first_visit", "created_at", "id")
-
-
-def get_next_guest_visit_count(full_name, phone):
-    previous_guests = get_guest_identity_queryset(full_name, phone)
-    max_visit_count = 0
-
-    for guest in previous_guests:
-        if guest.visit_count and guest.visit_count > max_visit_count:
-            max_visit_count = guest.visit_count
-
-    return max_visit_count + 1
-
-
-def get_first_visit_for_existing_guest(source_guest):
-    """
-    Ambil first_visit paling awal dari semua row Guest dengan nama + phone yang sama.
-    Kalau tidak ada, fallback dari source guest.
-    """
-
-    related_guests = get_guest_identity_queryset(
-        source_guest.full_name,
-        source_guest.phone,
-    )
-
-    first_guest = related_guests.exclude(first_visit__isnull=True).first()
-
-    if first_guest and first_guest.first_visit:
-        return first_guest.first_visit
-
-    return source_guest.first_visit
-
-
 def ensure_facedetection_not_used(record):
     used = (
         Attendance.objects
@@ -261,15 +242,148 @@ def ensure_facedetection_not_used(record):
 
     return None
 
+def get_existing_guest_attendance(session, guest):
+    """
+    Mengambil attendance Guest pada worship session yang sama.
 
-def create_guest_attendance(session, guest, record):
-    facedetection_error = ensure_facedetection_not_used(record)
+    UniqueConstraint pada Attendance memastikan satu Guest hanya
+    memiliki satu attendance dalam satu worship session.
+    """
 
-    if facedetection_error:
-        return None, facedetection_error
+    return (
+        Attendance.objects
+        .select_for_update()
+        .filter(
+            session=session,
+            guest=guest,
+        )
+        .first()
+    )
 
-    attendance_date = get_record_visit_date(record, session)
+
+def update_guest_visit_for_new_attendance(guest, visit_date):
+    """
+    Update statistik Guest ketika attendance baru benar-benar dibuat.
+
+    Function ini tidak boleh dipanggil untuk:
+    - duplicate attendance dalam session yang sama;
+    - attendance manual/legacy yang hanya dilengkapi evidence;
+    - proses idempotent.
+    """
+
+    guest.visit_count = int(guest.visit_count or 0) + 1
+
+    if (
+        guest.first_visit is None
+        or visit_date < guest.first_visit
+    ):
+        guest.first_visit = visit_date
+
+    if (
+        guest.last_visit is None
+        or visit_date > guest.last_visit
+    ):
+        guest.last_visit = visit_date
+
+    guest.save(
+        update_fields=[
+            "visit_count",
+            "first_visit",
+            "last_visit",
+        ]
+    )
+
+    return guest
+
+
+def create_or_update_guest_attendance(
+    session,
+    guest,
+    record,
+):
+    """
+    Membuat atau melengkapi Attendance Guest.
+
+    Return:
+        attendance
+        error
+        attendance_created
+
+    Rules:
+    - Belum ada attendance:
+      buat attendance baru dan return attendance_created=True.
+
+    - Sudah ada attendance tanpa facedetection:
+      lengkapi evidence attendance lama dan return False.
+
+    - Sudah ada attendance dengan facedetection:
+      caller harus menangani sebagai idempotent/already attended.
+    """
+
+    existing_attendance = get_existing_guest_attendance(
+        session=session,
+        guest=guest,
+    )
+
+    if (
+        existing_attendance
+        and existing_attendance.facedetection_id
+    ):
+        return existing_attendance, None, False
+
+    used_queryset = (
+        Attendance.objects
+        .select_for_update()
+        .filter(facedetection=record)
+    )
+
+    if existing_attendance:
+        used_queryset = used_queryset.exclude(
+            id=existing_attendance.id
+        )
+
+    facedetection_used = used_queryset.first()
+
+    if facedetection_used:
+        return (
+            None,
+            "Face detection record ini sudah dipakai oleh attendance lain.",
+            False,
+        )
+
+    attendance_date = get_record_visit_date(
+        record,
+        session,
+    )
+
     check_in_time = get_record_check_in_time(record)
+
+    if existing_attendance:
+        existing_attendance.member = None
+        existing_attendance.guest = guest
+        existing_attendance.facedetection = record
+        existing_attendance.session = session
+        existing_attendance.attendance_date = attendance_date
+        existing_attendance.check_in_time = check_in_time
+        existing_attendance.confidence = record.confidence
+        existing_attendance.notes = (
+            existing_attendance.notes or ""
+        )
+
+        existing_attendance.save(
+            update_fields=[
+                "member",
+                "guest",
+                "facedetection",
+                "session",
+                "attendance_date",
+                "check_in_time",
+                "confidence",
+                "notes",
+            ]
+        )
+
+        return existing_attendance, None, False
 
     try:
         attendance = Attendance.objects.create(
@@ -283,10 +397,18 @@ def create_guest_attendance(session, guest, record):
             notes="",
         )
 
-        return attendance, None
-    except IntegrityError:
-        return None, "Gagal membuat attendance karena face detection sudah digunakan."
+        return attendance, None, True
 
+    except IntegrityError:
+        return (
+            None,
+            (
+                "Gagal membuat attendance karena Guest atau "
+                "face detection sudah digunakan pada session ini."
+            ),
+            False,
+        )
+    
 def clean_rejected_record(record, validated_at=None):
     """
     Untuk record yang ditolak:
@@ -1103,7 +1225,7 @@ def validation_ai_reject_action(request):
             status=500,
             data={"error": str(e)},
         )
-    
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def validation_ai_find_guest_by_ai_action(request):
@@ -1116,25 +1238,37 @@ def validation_ai_find_guest_by_ai_action(request):
       "record_id": 61
     }
 
-    Flow:
-    - Ambil selected TimelineDataRecord.
-    - Bandingkan face_encoding record dengan semua Guest.face_encoding.
-    - Return guest paling mirip.
+    Sumber reference Guest:
+
+    Guest
+        -> Attendance
+        -> TimelineDataRecord.face_encoding
+
+    Guest tidak lagi menyimpan face_encoding secara langsung.
     """
 
     body = parse_body(request)
 
     if body is None:
-        return fail_response("Body request harus JSON valid.", status=400)
+        return fail_response(
+            "Body request harus JSON valid.",
+            status=400,
+        )
 
     session_id = body.get("session_id")
     record_id = body.get("record_id")
 
     if not session_id:
-        return fail_response("session_id wajib dikirim.", status=400)
+        return fail_response(
+            "session_id wajib dikirim.",
+            status=400,
+        )
 
     if not record_id:
-        return fail_response("record_id wajib dikirim.", status=400)
+        return fail_response(
+            "record_id wajib dikirim.",
+            status=400,
+        )
 
     try:
         with transaction.atomic():
@@ -1146,7 +1280,10 @@ def validation_ai_find_guest_by_ai_action(request):
             )
 
             if not session:
-                return fail_response("Worship session tidak ditemukan.", status=404)
+                return fail_response(
+                    "Worship session tidak ditemukan.",
+                    status=404,
+                )
 
             record = (
                 TimelineDataRecord.objects
@@ -1156,11 +1293,17 @@ def validation_ai_find_guest_by_ai_action(request):
             )
 
             if not record:
-                return fail_response("TimelineDataRecord tidak ditemukan.", status=404)
+                return fail_response(
+                    "TimelineDataRecord tidak ditemukan.",
+                    status=404,
+                )
 
             if not record_is_inside_session(record, session):
                 return fail_response(
-                    "Record tidak masuk dalam range waktu worship session ini.",
+                    (
+                        "Record tidak masuk dalam range waktu "
+                        "worship session ini."
+                    ),
                     status=400,
                 )
 
@@ -1170,97 +1313,200 @@ def validation_ai_find_guest_by_ai_action(request):
                     status=409,
                     data={
                         "record_id": record.id,
-                        "validation_status": record.validation_status,
+                        "validation_status": (
+                            record.validation_status
+                        ),
                     },
                 )
 
-            if record.detection_status not in ["unknown", "ambiguous"]:
+            if record.detection_status not in [
+                "unknown",
+                "ambiguous",
+            ]:
                 return fail_response(
-                    "Find guest by AI hanya untuk detection_status unknown atau ambiguous.",
+                    (
+                        "Find Guest by AI hanya untuk "
+                        "detection_status unknown atau ambiguous."
+                    ),
                     status=400,
-                    data={"detection_status": record.detection_status},
+                    data={
+                        "detection_status": (
+                            record.detection_status
+                        )
+                    },
                 )
 
             if not is_valid_encoding(record.face_encoding):
                 return fail_response(
-                    "Record ini tidak memiliki face_encoding yang valid.",
+                    (
+                        "Record ini tidak memiliki "
+                        "face_encoding yang valid."
+                    ),
                     status=400,
                 )
 
-            guests = (
-                Guest.objects
-                .filter(face_encoding__isnull=False)
-                .order_by("-created_at", "-id")
+            # ======================================================
+            # GUEST FACE REFERENCES
+            #
+            # Sumber:
+            # Attendance.guest
+            # Attendance.facedetection.face_encoding
+            #
+            # Guest converted_to_member tidak lagi dianggap Guest.
+            # ======================================================
+            guest_attendances = (
+                Attendance.objects
+                .filter(
+                    guest__isnull=False,
+                    guest__converted_to_member__isnull=True,
+                    facedetection__isnull=False,
+                    facedetection__face_encoding__isnull=False,
+                )
+                .select_related(
+                    "guest",
+                    "facedetection",
+                )
+                .order_by(
+                    "guest_id",
+                    "-check_in_time",
+                    "-id",
+                )
             )
 
-            best_guest = None
-            best_similarity = -1.0
+            guest_reference_counts = {}
 
-            for guest in guests:
-                if not is_valid_encoding(guest.face_encoding):
+            best_guest = None
+            best_reference_record = None
+            best_reference_attendance = None
+            best_similarity = -1.0
+            total_references_checked = 0
+
+            for attendance in guest_attendances:
+                guest = attendance.guest
+                reference_record = attendance.facedetection
+
+                if not guest or not reference_record:
                     continue
+
+                face_encoding = reference_record.face_encoding
+
+                if not is_valid_encoding(face_encoding):
+                    continue
+
+                current_count = guest_reference_counts.get(
+                    guest.id,
+                    0,
+                )
+
+                if (
+                    current_count
+                    >= MAX_GUEST_REFERENCE_EMBEDDINGS_PER_GUEST
+                ):
+                    continue
+
+                guest_reference_counts[guest.id] = (
+                    current_count + 1
+                )
+
+                total_references_checked += 1
 
                 similarity = cosine_similarity(
                     record.face_encoding,
-                    guest.face_encoding,
+                    face_encoding,
                 )
 
                 if similarity > best_similarity:
                     best_similarity = similarity
                     best_guest = guest
+                    best_reference_record = reference_record
+                    best_reference_attendance = attendance
 
             if not best_guest:
                 return ok_response(
-                    message="Belum ada data tamu dengan face encoding yang bisa dibandingkan.",
+                    message=(
+                        "Belum ada attendance Guest dengan "
+                        "face encoding yang dapat dibandingkan."
+                    ),
                     data={
                         "found": False,
-                        "threshold": round(GUEST_SAME_FACE_SIM * 100, 2),
+                        "threshold": round(
+                            GUEST_SAME_FACE_SIM * 100,
+                            2,
+                        ),
+                        "references_checked": 0,
                         "recommendation": None,
                     },
                     status=200,
                 )
 
-            is_match = best_similarity >= GUEST_SAME_FACE_SIM
+            is_match = (
+                best_similarity >= GUEST_SAME_FACE_SIM
+            )
+
+            recommendation = serialize_guest_for_validation(
+                best_guest,
+                similarity=best_similarity,
+                face_record=best_reference_record,
+            )
+
+            recommendation["reference"] = {
+                "attendance_id": (
+                    best_reference_attendance.id
+                    if best_reference_attendance
+                    else None
+                ),
+                "timeline_record_id": (
+                    best_reference_record.id
+                    if best_reference_record
+                    else None
+                ),
+                "capture_time": (
+                    best_reference_record.capture_time.isoformat()
+                    if (
+                        best_reference_record
+                        and best_reference_record.capture_time
+                    )
+                    else None
+                ),
+            }
 
             return ok_response(
                 message=(
                     "Rekomendasi tamu ditemukan."
                     if is_match
-                    else "Kandidat tamu ditemukan, tetapi similarity belum melewati threshold."
+                    else (
+                        "Kandidat tamu ditemukan, tetapi "
+                        "similarity belum melewati threshold."
+                    )
                 ),
                 data={
                     "found": is_match,
-                    "threshold": round(GUEST_SAME_FACE_SIM * 100, 2),
-                    "recommendation": serialize_guest_for_validation(
-                        best_guest,
-                        similarity=best_similarity,
+                    "threshold": round(
+                        GUEST_SAME_FACE_SIM * 100,
+                        2,
                     ),
+                    "references_checked": (
+                        total_references_checked
+                    ),
+                    "recommendation": recommendation,
                 },
                 status=200,
             )
 
     except Exception as e:
         return fail_response(
-            "Gagal menjalankan find guest by AI.",
+            "Gagal menjalankan Find Guest by AI.",
             status=500,
             data={"error": str(e)},
         )
-    
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def validation_ai_confirm_guest_action(request):
     """
     POST /api/cv/validation-ai/actions/guest/confirm/
 
-    Payload ambiguous:
-    {
-      "session_id": 6,
-      "record_id": 50,
-      "mode": "existing",
-      "source_guest_id": 10
-    }
-
-    Payload unknown group:
+    Existing Guest:
     {
       "session_id": 6,
       "record_id": 61,
@@ -1269,7 +1515,7 @@ def validation_ai_confirm_guest_action(request):
       "source_guest_id": 10
     }
 
-    Payload guest baru:
+    New Guest:
     {
       "session_id": 6,
       "record_id": 61,
@@ -1283,19 +1529,22 @@ def validation_ai_confirm_guest_action(request):
     }
 
     Rules:
-    - Ambiguous:
-      selected record menjadi guest_confirmed.
-    - Unknown group:
-      selected record menjadi guest_confirmed.
-      record lain dalam group menjadi rejected dan data wajahnya dibersihkan.
-    - Selalu membuat row Guest baru.
-    - Attendance guest dibuat dari selected record.
+    - Existing Guest menggunakan row t_guest yang sama.
+    - Tidak membuat row Guest baru untuk kunjungan berikutnya.
+    - Attendance baru menambah visit_count dan meng-update last_visit.
+    - Jika Guest sudah hadir di session yang sama:
+      action tetap success, tidak menambah attendance/visit_count.
+    - New Guest membuat satu row Guest baru.
+    - Evidence wajah tetap disimpan di TimelineDataRecord.
     """
 
     body = parse_body(request)
 
     if body is None:
-        return fail_response("Body request harus JSON valid.", status=400)
+        return fail_response(
+            "Body request harus JSON valid.",
+            status=400,
+        )
 
     session_id = body.get("session_id")
     record_id = body.get("record_id")
@@ -1305,32 +1554,70 @@ def validation_ai_confirm_guest_action(request):
     guest_payload = body.get("guest") or {}
 
     if not session_id:
-        return fail_response("session_id wajib dikirim.", status=400)
+        return fail_response(
+            "session_id wajib dikirim.",
+            status=400,
+        )
 
     if not record_id:
-        return fail_response("record_id wajib dikirim.", status=400)
+        return fail_response(
+            "record_id wajib dikirim.",
+            status=400,
+        )
 
     if mode not in ["existing", "new"]:
-        return fail_response("mode harus existing atau new.", status=400)
+        return fail_response(
+            "mode harus existing atau new.",
+            status=400,
+        )
 
     if mode == "existing" and not source_guest_id:
-        return fail_response("source_guest_id wajib dikirim untuk mode existing.", status=400)
+        return fail_response(
+            "source_guest_id wajib dikirim untuk mode existing.",
+            status=400,
+        )
 
-    if mode == "new" and not normalize_text(guest_payload.get("full_name")):
-        return fail_response("Nama tamu wajib diisi untuk mode new.", status=400)
+    if (
+        mode == "new"
+        and not normalize_text(
+            guest_payload.get("full_name")
+        )
+    ):
+        return fail_response(
+            "Nama tamu wajib diisi untuk mode new.",
+            status=400,
+        )
 
     try:
         selected_record_id = int(record_id)
     except Exception:
-        return fail_response("record_id harus berupa angka id TimelineDataRecord.", status=400)
+        return fail_response(
+            (
+                "record_id harus berupa angka id "
+                "TimelineDataRecord."
+            ),
+            status=400,
+        )
 
     try:
-        clean_record_ids = [int(item) for item in record_ids]
-        clean_record_ids = list(dict.fromkeys(clean_record_ids))
+        clean_record_ids = [
+            int(item)
+            for item in record_ids
+        ]
+        clean_record_ids = list(
+            dict.fromkeys(clean_record_ids)
+        )
     except Exception:
-        return fail_response("record_ids harus berisi angka id TimelineDataRecord.", status=400)
+        return fail_response(
+            (
+                "record_ids harus berisi angka id "
+                "TimelineDataRecord."
+            ),
+            status=400,
+        )
 
-    # Supaya ambiguous tetap bisa jalan walaupun frontend tidak kirim record_ids.
+    # Ambiguous tetap dapat berjalan walaupun frontend
+    # tidak mengirim record_ids.
     if selected_record_id not in clean_record_ids:
         clean_record_ids.append(selected_record_id)
 
@@ -1344,16 +1631,26 @@ def validation_ai_confirm_guest_action(request):
             )
 
             if not session:
-                return fail_response("Worship session tidak ditemukan.", status=404)
+                return fail_response(
+                    "Worship session tidak ditemukan.",
+                    status=404,
+                )
 
             records = list(
                 TimelineDataRecord.objects
                 .select_for_update()
                 .filter(id__in=clean_record_ids)
-                .order_by("capture_time", "id")
+                .order_by(
+                    "capture_time",
+                    "id",
+                )
             )
 
-            found_record_ids = {record.id for record in records}
+            found_record_ids = {
+                item.id
+                for item in records
+            }
+
             missing_record_ids = [
                 item
                 for item in clean_record_ids
@@ -1362,37 +1659,65 @@ def validation_ai_confirm_guest_action(request):
 
             if missing_record_ids:
                 return fail_response(
-                    "Ada TimelineDataRecord yang tidak ditemukan.",
+                    (
+                        "Ada TimelineDataRecord "
+                        "yang tidak ditemukan."
+                    ),
                     status=404,
-                    data={"missing_record_ids": missing_record_ids},
+                    data={
+                        "missing_record_ids": (
+                            missing_record_ids
+                        )
+                    },
                 )
 
-            record = None
-            for item in records:
-                if item.id == selected_record_id:
-                    record = item
-                    break
+            record = next(
+                (
+                    item
+                    for item in records
+                    if item.id == selected_record_id
+                ),
+                None,
+            )
 
             if not record:
-                return fail_response("Selected TimelineDataRecord tidak ditemukan.", status=404)
+                return fail_response(
+                    (
+                        "Selected TimelineDataRecord "
+                        "tidak ditemukan."
+                    ),
+                    status=404,
+                )
 
             invalid_session_record_ids = [
                 item.id
                 for item in records
-                if not record_is_inside_session(item, session)
+                if not record_is_inside_session(
+                    item,
+                    session,
+                )
             ]
 
             if invalid_session_record_ids:
                 return fail_response(
-                    "Ada record yang tidak masuk dalam range waktu worship session ini.",
+                    (
+                        "Ada record yang tidak masuk dalam "
+                        "range waktu worship session ini."
+                    ),
                     status=400,
-                    data={"invalid_record_ids": invalid_session_record_ids},
+                    data={
+                        "invalid_record_ids": (
+                            invalid_session_record_ids
+                        )
+                    },
                 )
 
             not_pending_records = [
                 {
                     "id": item.id,
-                    "validation_status": item.validation_status,
+                    "validation_status": (
+                        item.validation_status
+                    ),
                 }
                 for item in records
                 if item.validation_status != "pending"
@@ -1402,15 +1727,23 @@ def validation_ai_confirm_guest_action(request):
                 return fail_response(
                     "Ada record yang sudah pernah diproses.",
                     status=409,
-                    data={"records": not_pending_records},
+                    data={
+                        "records": not_pending_records
+                    },
                 )
 
-            detection_statuses = {item.detection_status for item in records}
+            detection_statuses = {
+                item.detection_status
+                for item in records
+            }
 
             if detection_statuses == {"ambiguous"}:
                 if len(records) != 1:
                     return fail_response(
-                        "Confirm guest untuk ambiguous hanya boleh 1 record.",
+                        (
+                            "Confirm Guest untuk ambiguous "
+                            "hanya boleh 1 record."
+                        ),
                         status=400,
                     )
 
@@ -1419,6 +1752,7 @@ def validation_ai_confirm_guest_action(request):
 
             elif detection_statuses == {"unknown"}:
                 process_mode = "unknown_group"
+
                 rejected_records = [
                     item
                     for item in records
@@ -1427,92 +1761,191 @@ def validation_ai_confirm_guest_action(request):
 
             else:
                 return fail_response(
-                    "record_ids tidak boleh mencampur status ambiguous dan unknown.",
+                    (
+                        "record_ids tidak boleh mencampur "
+                        "status ambiguous dan unknown."
+                    ),
                     status=400,
-                    data={"detection_statuses": list(detection_statuses)},
-                )
-
-            if record.detection_status not in ["unknown", "ambiguous"]:
-                return fail_response(
-                    "Confirm guest hanya untuk detection_status unknown atau ambiguous.",
-                    status=400,
-                    data={"detection_status": record.detection_status},
+                    data={
+                        "detection_statuses": list(
+                            detection_statuses
+                        )
+                    },
                 )
 
             if not record.face_image:
                 return fail_response(
-                    "Record ini tidak memiliki face_image.",
+                    (
+                        "Record ini tidak memiliki "
+                        "face_image."
+                    ),
                     status=400,
                 )
 
-            visit_date = get_record_visit_date(record, session)
+            if not is_valid_encoding(record.face_encoding):
+                return fail_response(
+                    (
+                        "Record ini tidak memiliki "
+                        "face_encoding yang valid."
+                    ),
+                    status=400,
+                )
 
+            visit_date = get_record_visit_date(
+                record,
+                session,
+            )
+
+            # ======================================================
+            # RESOLVE GUEST
+            # ======================================================
             if mode == "existing":
-                source_guest = (
+                guest = (
                     Guest.objects
                     .select_for_update()
                     .filter(id=source_guest_id)
                     .first()
                 )
 
-                if not source_guest:
-                    return fail_response("Source guest tidak ditemukan.", status=404)
+                if not guest:
+                    return fail_response(
+                        "Guest tidak ditemukan.",
+                        status=404,
+                    )
 
-                full_name = normalize_text(source_guest.full_name)
-                phone = normalize_text(source_guest.phone)
-                from_where = source_guest.from_where
-                first_visit = get_first_visit_for_existing_guest(source_guest) or visit_date
-                visit_count = get_next_guest_visit_count(full_name, phone)
+                if guest.converted_to_member_id is not None:
+                    return fail_response(
+                        (
+                            "Guest ini sudah dikonversi menjadi "
+                            "member dan tidak dapat diproses "
+                            "kembali sebagai Guest."
+                        ),
+                        status=409,
+                        data={
+                            "guest_id": guest.id,
+                            "converted_to_member_id": (
+                                guest.converted_to_member_id
+                            ),
+                        },
+                    )
 
             else:
-                full_name = normalize_text(guest_payload.get("full_name"))
-                phone = normalize_text(guest_payload.get("phone"))
-                from_where = normalize_text(guest_payload.get("from_where"))
-                first_visit = visit_date
-                visit_count = 1
-
-            duplicate_attendance = find_duplicate_guest_attendance(
-                session=session,
-                full_name=full_name,
-                first_visit=first_visit,
-                from_where=from_where,
-            )
-
-            if duplicate_attendance:
-                duplicate_guest = duplicate_attendance.guest
-
-                return fail_response(
-                    "Tamu ini sudah tercatat hadir pada worship session yang sama.",
-                    status=409,
-                    data={
-                        "duplicate": True,
-                        "session_id": session.id,
-                        "attendance_id": duplicate_attendance.id,
-                        "guest": serialize_guest_for_validation(duplicate_guest),
-                        "rule": {
-                            "full_name": full_name,
-                            "first_visit": first_visit.isoformat() if first_visit else None,
-                            "from_where": from_where,
-                        },
-                    },
+                guest = Guest.objects.create(
+                    full_name=normalize_text(
+                        guest_payload.get("full_name")
+                    ),
+                    phone=clean_optional_text(
+                        guest_payload.get("phone")
+                    ),
+                    visit_count=0,
+                    first_visit=None,
+                    last_visit=None,
+                    converted_to_member=None,
+                    notes="",
+                    from_where=clean_optional_text(
+                        guest_payload.get("from_where")
+                    ),
                 )
 
-            new_guest = Guest.objects.create(
-                full_name=full_name,
-                phone=phone or None,
-                visit_count=visit_count,
-                first_visit=first_visit,
-                last_visit=visit_date,
-                converted_to_member=None,
-                face_image=record.face_image,
-                face_encoding=record.face_encoding,
-                notes="",
-                from_where=from_where or None,
+            # ======================================================
+            # IDEMPOTENT GUEST
+            #
+            # Guest sudah hadir pada session yang sama:
+            # - tidak error;
+            # - attendance lama tidak diubah;
+            # - visit_count tidak bertambah;
+            # - last_visit tidak berubah;
+            # - pending timeline action ini dihapus.
+            # ======================================================
+            existing_attendance = (
+                get_existing_guest_attendance(
+                    session=session,
+                    guest=guest,
+                )
             )
 
-            attendance, attendance_error = create_guest_attendance(
+            if (
+                existing_attendance
+                and existing_attendance.facedetection_id
+            ):
+                deleted_record_ids, delete_error = (
+                    delete_validation_timeline_records(
+                        records
+                    )
+                )
+
+                if delete_error:
+                    return fail_response(
+                        delete_error,
+                        status=409,
+                        data={
+                            "session_id": session.id,
+                            "guest_id": guest.id,
+                            "processed_record_ids": [
+                                item.id
+                                for item in records
+                            ],
+                        },
+                    )
+
+                return ok_response(
+                    message=(
+                        f"{guest.full_name} sudah tercatat "
+                        "sebagai Guest pada session ini. "
+                        "Attendance dan visit count tidak diubah."
+                    ),
+                    data={
+                        "process_mode": process_mode,
+                        "guest_mode": mode,
+                        "already_attended": True,
+                        "attendance_skipped": True,
+                        "attendance_action": (
+                            "skipped_existing"
+                        ),
+                        "visit_incremented": False,
+                        "session": {
+                            "id": session.id,
+                            "session_name": (
+                                session.session_name
+                            ),
+                            "date": (
+                                session.date.isoformat()
+                                if session.date
+                                else None
+                            ),
+                        },
+                        "guest": (
+                            serialize_guest_for_validation(
+                                guest
+                            )
+                        ),
+                        "attendance": (
+                            serialize_attendance(
+                                existing_attendance
+                            )
+                        ),
+                        "guest_confirmed_record_id": None,
+                        "rejected_record_ids": [],
+                        "deleted_record_ids": (
+                            deleted_record_ids
+                        ),
+                        "processed_record_ids": (
+                            deleted_record_ids
+                        ),
+                    },
+                    status=200,
+                )
+
+            # ======================================================
+            # CREATE / COMPLETE ATTENDANCE
+            # ======================================================
+            (
+                attendance,
+                attendance_error,
+                attendance_created,
+            ) = create_or_update_guest_attendance(
                 session=session,
-                guest=new_guest,
+                guest=guest,
                 record=record,
             )
 
@@ -1523,17 +1956,26 @@ def validation_ai_confirm_guest_action(request):
                     data={
                         "session_id": session.id,
                         "record_id": record.id,
-                        "guest_id": new_guest.id,
+                        "guest_id": guest.id,
                     },
+                )
+
+            # Hanya attendance yang benar-benar baru yang
+            # menambah visit count.
+            if attendance_created:
+                update_guest_visit_for_new_attendance(
+                    guest=guest,
+                    visit_date=visit_date,
                 )
 
             validated_at = timezone.now()
 
             record.validation_status = "guest_confirmed"
             record.final_member = None
-            record.final_guest = new_guest
+            record.final_guest = guest
             record.validated_at = validated_at
             record.notes = ""
+
             record.save(
                 update_fields=[
                     "validation_status",
@@ -1545,41 +1987,91 @@ def validation_ai_confirm_guest_action(request):
             )
 
             rejected_record_ids = []
+
             for rejected_record in rejected_records:
-                clean_rejected_record(rejected_record, validated_at=validated_at)
-                rejected_record_ids.append(rejected_record.id)
+                clean_rejected_record(
+                    rejected_record,
+                    validated_at=validated_at,
+                )
+
+                rejected_record_ids.append(
+                    rejected_record.id
+                )
 
             return ok_response(
-                message="Data berhasil dikonfirmasi sebagai tamu dan masuk ke attendance.",
+                message=(
+                    "Data berhasil dikonfirmasi sebagai "
+                    "Guest dan masuk ke attendance."
+                ),
                 data={
                     "process_mode": process_mode,
                     "guest_mode": mode,
+                    "guest_action": (
+                        "created"
+                        if mode == "new"
+                        else "updated_existing"
+                    ),
+                    "already_attended": False,
+                    "attendance_skipped": False,
+                    "attendance_action": (
+                        "created"
+                        if attendance_created
+                        else "completed_existing"
+                    ),
+                    "visit_incremented": (
+                        attendance_created
+                    ),
                     "session": {
                         "id": session.id,
-                        "session_name": session.session_name,
-                        "date": session.date.isoformat() if session.date else None,
+                        "session_name": (
+                            session.session_name
+                        ),
+                        "date": (
+                            session.date.isoformat()
+                            if session.date
+                            else None
+                        ),
                     },
-                    "guest": serialize_guest_for_validation(new_guest),
+                    "guest": (
+                        serialize_guest_for_validation(
+                            guest,
+                            face_record=record,
+                        )
+                    ),
                     "timeline_record": {
                         "id": record.id,
-                        "validation_status": record.validation_status,
-                        "final_guest_id": record.final_guest_id,
+                        "validation_status": (
+                            record.validation_status
+                        ),
+                        "final_guest_id": (
+                            record.final_guest_id
+                        ),
                     },
-                    "attendance": serialize_attendance(attendance),
-                    "guest_confirmed_record_id": record.id,
-                    "rejected_record_ids": rejected_record_ids,
-                    "processed_record_ids": [item.id for item in records],
+                    "attendance": (
+                        serialize_attendance(attendance)
+                    ),
+                    "guest_confirmed_record_id": (
+                        record.id
+                    ),
+                    "rejected_record_ids": (
+                        rejected_record_ids
+                    ),
+                    "deleted_record_ids": [],
+                    "processed_record_ids": [
+                        item.id
+                        for item in records
+                    ],
                 },
                 status=200,
             )
 
     except Exception as e:
         return fail_response(
-            "Gagal memproses confirm guest.",
+            "Gagal memproses confirm Guest.",
             status=500,
             data={"error": str(e)},
         )
-    
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def validation_ai_add_member_face_action(request):

@@ -342,7 +342,8 @@ export function GuestModal({
                   {selectedGuest?.full_name || guestSearchName}
                 </p>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Data akan dibuat sebagai kunjungan baru untuk tamu ini.
+                  Attendance baru akan dibuat untuk sesi ini. Data Guest tetap memakai
+                  row yang sama, sedangkan visit count dan last visit akan diperbarui.
                 </p>
               </div>
             )}

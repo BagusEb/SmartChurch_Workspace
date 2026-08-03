@@ -32,6 +32,7 @@ from .config import (
     AI_FRAME_WIDTH,
     ENABLE_AI_RESIZE,
     ENABLE_SOURCE_CROP,
+    MAX_GUEST_REFERENCE_EMBEDDINGS_PER_GUEST,
     MIN_TRACK_SEEN_COUNT_FOR_RECOGNITION,
     RECOGNITION_FORCE_DET_SCORE_DELTA,
     RECOGNITION_FORCE_SIZE_GROWTH_RATIO,
@@ -80,6 +81,7 @@ class SessionManager:
         # Statistik menghitung event final yang berhasil masuk DB.
         self.stats = {
             "known": 0,
+            "guest": 0,
             "ambiguous": 0,
             "unknown": 0,
         }
@@ -98,6 +100,13 @@ class SessionManager:
         #   "best_conf": float,
         # }
         self._session_seen_members = {}
+
+        # guest_id -> {
+        #   "timeline_id": int | None,
+        #   "best_conf": float,
+        # }
+        self._session_seen_guests = {}
+
         self._session_seen_members_lock = threading.Lock()
 
         self._last_frame_pipeline_log_at = 0.0
@@ -153,9 +162,28 @@ class SessionManager:
     # ============================================================
 
     def _load_embeddings(self) -> list:
-        from attendance.models import MemberFaceEmbedding
+        """
+        Memuat reference wajah untuk attendance.
 
-        rows = (
+        Sumber:
+        1. MemberFaceEmbedding milik member aktif.
+        2. Attendance guest lama melalui:
+        Attendance.facedetection.face_encoding.
+
+        Guest yang sudah converted_to_member tidak dimuat.
+        """
+
+        from attendance.models import (
+            Attendance,
+            MemberFaceEmbedding,
+        )
+
+        references = []
+
+        # ============================================================
+        # MEMBER REFERENCES
+        # ============================================================
+        member_embeddings = (
             MemberFaceEmbedding.objects
             .filter(
                 member__isnull=False,
@@ -164,17 +192,120 @@ class SessionManager:
                 member__member_status="active",
             )
             .select_related("member")
+            .order_by("member_id", "id")
         )
 
-        return [
-            {
-                "member_id": fe.member.id,
-                "full_name": fe.member.full_name,
-                "face_encoding": fe.face_encoding,
-            }
-            for fe in rows
-            if fe.member is not None and fe.face_encoding
-        ]
+        for face_embedding in member_embeddings:
+            if (
+                face_embedding.member is None
+                or not face_embedding.face_encoding
+            ):
+                continue
+
+            references.append(
+                {
+                    "identity_type": "member",
+                    "identity_id": face_embedding.member_id,
+                    "member_id": face_embedding.member_id,
+                    "guest_id": None,
+                    "full_name": face_embedding.member.full_name,
+                    "face_encoding": face_embedding.face_encoding,
+                    "source": "member_face_embedding",
+                    "source_id": face_embedding.id,
+                }
+            )
+
+        # ============================================================
+        # GUEST REFERENCES
+        #
+        # Guest tidak lagi menyimpan face_encoding.
+        # Encoding diambil dari attendance lama -> facedetection.
+        # ============================================================
+        guest_attendances = (
+            Attendance.objects
+            .filter(
+                guest__isnull=False,
+
+                # Jangan load guest yang telah menjadi member.
+                guest__converted_to_member__isnull=True,
+
+                facedetection__isnull=False,
+                facedetection__face_encoding__isnull=False,
+            )
+            .select_related(
+                "guest",
+                "facedetection",
+            )
+            .order_by(
+                "guest_id",
+                "-check_in_time",
+                "-id",
+            )
+        )
+
+        guest_reference_counts = {}
+
+        for attendance in guest_attendances:
+            guest = attendance.guest
+            facedetection = attendance.facedetection
+
+            if not guest or not facedetection:
+                continue
+
+            face_encoding = facedetection.face_encoding
+
+            if not face_encoding:
+                continue
+
+            current_count = guest_reference_counts.get(
+                guest.id,
+                0,
+            )
+
+            if (
+                current_count
+                >= MAX_GUEST_REFERENCE_EMBEDDINGS_PER_GUEST
+            ):
+                continue
+
+            references.append(
+                {
+                    "identity_type": "guest",
+                    "identity_id": guest.id,
+                    "member_id": None,
+                    "guest_id": guest.id,
+                    "full_name": guest.full_name or f"Guest #{guest.id}",
+                    "face_encoding": face_encoding,
+                    "source": "guest_attendance_timeline",
+                    "source_id": facedetection.id,
+                    "attendance_id": attendance.id,
+                }
+            )
+
+            guest_reference_counts[guest.id] = (
+                current_count + 1
+            )
+
+        member_reference_count = sum(
+            1
+            for reference in references
+            if reference["identity_type"] == "member"
+        )
+
+        guest_reference_count = sum(
+            1
+            for reference in references
+            if reference["identity_type"] == "guest"
+        )
+
+        logger.info(
+            "[SessionManager] Face references loaded: "
+            f"member={member_reference_count} | "
+            f"guest={guest_reference_count} | "
+            f"total={len(references)}"
+        )
+
+        return references
 
     @staticmethod
     def _create_worship_session(session_name: str):
@@ -236,8 +367,10 @@ class SessionManager:
 
         self.tracker = self._new_tracker()
         self._session_seen_members = {}
+        self._session_seen_guests = {}
         self.stats = {
             "known": 0,
+            "guest": 0,
             "ambiguous": 0,
             "unknown": 0,
         }
@@ -252,14 +385,14 @@ class SessionManager:
             return False, f"Gagal load AI model: {exc}"
 
         try:
-            embeddings = self._load_embeddings()
+            references  = self._load_embeddings()
         except Exception as exc:
             return False, f"Gagal load embeddings dari DB: {exc}"
 
-        if not embeddings:
+        if not references :
             return False, "Tidak ada embedding aktif. Lakukan face enroll dulu."
 
-        self.matcher.load_from_db(embeddings)
+        self.matcher.load_from_db(references )
 
         try:
             worship_session = self._create_worship_session(session_name)
@@ -352,6 +485,7 @@ class SessionManager:
         self.current_session_id = None
         self.current_session_name = None
         self._session_seen_members = {}
+        self._session_seen_guests = {}
 
         logger.info(f"[SessionManager] Sesi '{session_name}' dihentikan.")
 
@@ -368,10 +502,16 @@ class SessionManager:
             "db_queue_size": self.db_queue.qsize(),
             "log_queue_size": self.log_queue.qsize(),
             "total_references": self.matcher.total_references,
+            "reference_counts": self.matcher.reference_counts,
             "session_id": self.current_session_id,
             "session_name": self.current_session_name,
             "active_tracks": len(self.tracker.tracks),
-            "seen_known_members": len(self._session_seen_members),
+            "seen_known_members": len(
+                self._session_seen_members
+            ),
+            "seen_known_guests": len(
+                self._session_seen_guests
+            ),
             "camera": self.camera.get_status(),
         }
 
@@ -653,6 +793,7 @@ class SessionManager:
                                     similarity=match["similarity"],
                                     det_score=det_score,
                                     face_size=face_size,
+                                    identity_type=match.get("identity_type"),
                                 )
 
                                 display_name = (
@@ -666,7 +807,9 @@ class SessionManager:
                                     track_id=track_id,
                                     status=status,
                                     display_name=display_name,
-                                    member_id=match["member_id"],
+                                    identity_type=match.get("identity_type"),
+                                    member_id=match.get("member_id"),
+                                    guest_id=match.get("guest_id"),
                                     similarity=match["similarity"],
                                     det_score=det_score,
                                     face_size=face_size,
@@ -793,7 +936,8 @@ class SessionManager:
             f"faces={detections_count} | "
             f"tracks={tracked_count} | "
             f"active_tracks={len(self.tracker.tracks)} | "
-            f"known_seen={len(self._session_seen_members)} | "
+            f"member_seen={len(self._session_seen_members)} | "
+            f"guest_seen={len(self._session_seen_guests)} | "
             f"db_q={self.db_queue.qsize()} | "
             f"log_q={self.log_queue.qsize()}"
         )
@@ -801,17 +945,21 @@ class SessionManager:
     # ============================================================
     # Track finalization + queue push
     # ============================================================
-
-    def _finalize_track_event(self, track: dict, reason: str):
+    def _finalize_track_event(
+        self,
+        track: dict,
+        reason: str,
+    ):
         """
         Finalisasi satu track tepat satu kali.
 
-        Waktu:
-        - capture_time = first_detected_at
+        Recognized identity:
+        - KNOWN -> member
+        - GUEST -> guest
 
-        Evidence:
-        - face image, embedding, status, confidence = best_result
+        UNKNOWN dan AMBIGUOUS hanya masuk TimelineDataRecord pending.
         """
+
         if not track or track.get("finalized"):
             return
 
@@ -822,7 +970,7 @@ class SessionManager:
 
         if not best_result:
             logger.debug(
-                f"[TrackFinalizer] Skip track tanpa recognition result: "
+                "[TrackFinalizer] Skip track tanpa recognition result: "
                 f"track_id={track_id} | reason={reason}"
             )
             return
@@ -830,14 +978,46 @@ class SessionManager:
         status = str(
             best_result.get("status") or "AMBIGUOUS"
         ).upper()
+
         display_name = (
-            best_result.get("display_name") or "AMBIGUOUS"
+            best_result.get("display_name")
+            or "AMBIGUOUS"
         )
+
+        identity_type = str(
+            best_result.get("identity_type") or ""
+        ).lower() or None
+
         member_id = best_result.get("member_id")
+        guest_id = best_result.get("guest_id")
+
+        # Perlindungan terhadap result final yang kehilangan owner id.
+        if status == "KNOWN" and member_id is None:
+            logger.warning(
+                "[TrackFinalizer] KNOWN tanpa member_id, "
+                f"diubah menjadi UNKNOWN. track_id={track_id}"
+            )
+            status = "UNKNOWN"
+            identity_type = None
+            display_name = "Unknown"
+
+        if status == "GUEST" and guest_id is None:
+            logger.warning(
+                "[TrackFinalizer] GUEST tanpa guest_id, "
+                f"diubah menjadi UNKNOWN. track_id={track_id}"
+            )
+            status = "UNKNOWN"
+            identity_type = None
+            display_name = "Unknown"
+
         similarity = float(
             best_result.get("similarity") or 0.0
         )
-        confidence_pct = round(similarity * 100, 2)
+
+        confidence_pct = round(
+            similarity * 100,
+            2,
+        )
 
         capture_time = (
             track.get("first_detected_at")
@@ -850,7 +1030,7 @@ class SessionManager:
 
         if face_crop is None or embedding is None:
             logger.warning(
-                f"[TrackFinalizer] Track tidak memiliki evidence lengkap: "
+                "[TrackFinalizer] Track tidak memiliki evidence lengkap: "
                 f"track_id={track_id} | status={status}"
             )
             return
@@ -866,10 +1046,35 @@ class SessionManager:
             else embedding
         )
 
-        # KNOWN tetap satu attendance/timeline utama per member dalam session.
-        if status == "KNOWN" and member_id is not None:
+        is_recognized_member = (
+            status == "KNOWN"
+            and member_id is not None
+        )
+
+        is_recognized_guest = (
+            status == "GUEST"
+            and guest_id is not None
+        )
+
+        seen_map = None
+        identity_id = None
+
+        if is_recognized_member:
+            seen_map = self._session_seen_members
+            identity_id = member_id
+            identity_type = "member"
+
+        elif is_recognized_guest:
+            seen_map = self._session_seen_guests
+            identity_id = guest_id
+            identity_type = "guest"
+
+        # ============================================================
+        # DEDUPLIKASI MEMBER / GUEST DALAM SESSION YANG SAMA
+        # ============================================================
+        if seen_map is not None:
             with self._session_seen_members_lock:
-                existing = self._session_seen_members.get(member_id)
+                existing = seen_map.get(identity_id)
 
                 if existing:
                     old_best_conf = float(
@@ -878,7 +1083,8 @@ class SessionManager:
 
                     should_update_evidence = (
                         confidence_pct
-                        >= old_best_conf + KNOWN_CONF_UPDATE_MIN_DELTA
+                        >= old_best_conf
+                        + KNOWN_CONF_UPDATE_MIN_DELTA
                     )
 
                     if should_update_evidence:
@@ -887,14 +1093,24 @@ class SessionManager:
                         self._safe_queue_put(
                             self.db_queue,
                             {
-                                "action": "update_known_best_evidence",
+                                "action": (
+                                    "update_recognized_best_evidence"
+                                ),
+                                "identity_type": identity_type,
+                                "identity_id": identity_id,
                                 "member_id": member_id,
-                                "session_id": self.current_session_id,
-                                "timeline_id": existing.get("timeline_id"),
+                                "guest_id": guest_id,
+                                "session_id": (
+                                    self.current_session_id
+                                ),
+                                "timeline_id": existing.get(
+                                    "timeline_id"
+                                ),
                                 "confidence_pct": confidence_pct,
-                                "face_image_bytes": face_image_bytes,
+                                "face_image_bytes": (
+                                    face_image_bytes
+                                ),
                                 "face_encoding": face_encoding,
-                                # Sengaja tidak mengubah capture_time/check-in.
                                 "track_id": track_id,
                             },
                             "db_queue",
@@ -903,10 +1119,18 @@ class SessionManager:
                     self._safe_queue_put(
                         self.log_queue,
                         {
-                            "time": capture_time.strftime("%H:%M:%S"),
+                            "time": (
+                                capture_time.strftime("%H:%M:%S")
+                            ),
                             "name": display_name,
                             "status": status,
-                            "similarity": round(similarity, 3),
+                            "identity_type": identity_type,
+                            "member_id": member_id,
+                            "guest_id": guest_id,
+                            "similarity": round(
+                                similarity,
+                                3,
+                            ),
                             "confidence_updated": (
                                 should_update_evidence
                             ),
@@ -922,7 +1146,7 @@ class SessionManager:
                     self.tracker.mark_db_pushed(track)
                     return
 
-                self._session_seen_members[member_id] = {
+                seen_map[identity_id] = {
                     "timeline_id": None,
                     "best_conf": confidence_pct,
                 }
@@ -933,6 +1157,9 @@ class SessionManager:
                 "time": capture_time.strftime("%H:%M:%S"),
                 "name": display_name,
                 "status": status,
+                "identity_type": identity_type,
+                "member_id": member_id,
+                "guest_id": guest_id,
                 "similarity": round(similarity, 3),
                 "is_update": False,
                 "provisional": False,
@@ -948,13 +1175,22 @@ class SessionManager:
             {
                 "action": "create",
                 "capture_time": capture_time,
-                "best_recognized_at": best_result.get("recognized_at"),
+                "best_recognized_at": (
+                    best_result.get("recognized_at")
+                ),
                 "face_image_bytes": face_image_bytes,
                 "face_encoding": face_encoding,
                 "detection_status": status.lower(),
                 "confidence_pct": confidence_pct,
-                # Untuk UNKNOWN/AMBIGUOUS, ini adalah kandidat terdekat AI.
+
+                "identity_type": identity_type,
+                "identity_id": identity_id,
+
+                # UNKNOWN/AMBIGUOUS tetap dapat menyimpan kandidat
+                # member terdekat seperti flow sebelumnya.
                 "matched_member_id": member_id,
+                "matched_guest_id": guest_id,
+
                 "status": status,
                 "session_id": self.current_session_id,
                 "track_id": track_id,
@@ -968,28 +1204,26 @@ class SessionManager:
 
         if queued:
             self.tracker.mark_db_pushed(track)
+            return
 
-        else:
-            if status == "KNOWN" and member_id is not None:
-                with self._session_seen_members_lock:
-                    current_entry = self._session_seen_members.get(
-                        member_id
-                    )
+        # Rollback cache RAM jika gagal masuk queue.
+        if seen_map is not None and identity_id is not None:
+            with self._session_seen_members_lock:
+                current_entry = seen_map.get(identity_id)
 
-                    if (
-                        current_entry
-                        and current_entry.get("timeline_id") is None
-                    ):
-                        self._session_seen_members.pop(
-                            member_id,
-                            None,
-                        )
+                if (
+                    current_entry
+                    and current_entry.get("timeline_id") is None
+                ):
+                    seen_map.pop(identity_id, None)
 
-            logger.error(
-                "[TrackFinalizer] Gagal memasukkan event "
-                f"ke DB queue: track_id={track_id} | "
-                f"status={status} | member_id={member_id}"
-            )
+        logger.error(
+            "[TrackFinalizer] Gagal memasukkan event ke DB queue: "
+            f"track_id={track_id} | "
+            f"status={status} | "
+            f"member_id={member_id} | "
+            f"guest_id={guest_id}"
+        )
 
     # ============================================================
     # DB writer thread
@@ -1020,10 +1254,21 @@ class SessionManager:
                     timeline_id = self._save_detection_to_db(data)
 
                     if timeline_id:
-                        status = data.get("status")
-                        member_id = data.get("matched_member_id")
+                        status = str(
+                            data.get("status") or ""
+                        ).upper()
 
-                        if status == "KNOWN" and member_id is not None:
+                        member_id = data.get(
+                            "matched_member_id"
+                        )
+                        guest_id = data.get(
+                            "matched_guest_id"
+                        )
+
+                        if (
+                            status == "KNOWN"
+                            and member_id is not None
+                        ):
                             with self._session_seen_members_lock:
                                 entry = self._session_seen_members.get(
                                     member_id
@@ -1032,14 +1277,27 @@ class SessionManager:
                                 if entry:
                                     entry["timeline_id"] = timeline_id
 
-                        stat_key = str(status or "").lower()
+                        elif (
+                            status == "GUEST"
+                            and guest_id is not None
+                        ):
+                            with self._session_seen_members_lock:
+                                entry = self._session_seen_guests.get(
+                                    guest_id
+                                )
+
+                                if entry:
+                                    entry["timeline_id"] = timeline_id
+
+                        stat_key = status.lower()
 
                         if stat_key in self.stats:
                             self.stats[stat_key] += 1
 
-                elif action == "update_known_best_evidence":
-                    self._update_known_best_evidence_in_db(data)
-
+                elif action == "update_recognized_best_evidence":
+                    self._update_recognized_best_evidence_in_db(
+                        data
+                    )
                 else:
                     logger.warning(
                         f"[DBWriter] Unknown action: {action}"
@@ -1055,32 +1313,61 @@ class SessionManager:
         logger.info("[DBWriter] Selesai.")
 
     @staticmethod
-    def _update_known_best_evidence_in_db(data: dict):
+    def _update_recognized_best_evidence_in_db(
+        data: dict,
+    ):
         """
-        Memperbarui evidence KNOWN jika track berikutnya memberi similarity
-        lebih tinggi. capture_time dan check_in_time tidak diubah.
-        """
-        from django.db.models import Q
-        from attendance.models import Attendance, TimelineDataRecord
+        Memperbarui evidence terbaik member atau guest.
 
-        member_id = data.get("member_id")
+        Tidak mengubah:
+        - capture_time
+        - check_in_time
+        - Guest.visit_count
+        - Guest.last_visit
+        """
+
+        from django.db.models import Q
+
+        from attendance.models import (
+            Attendance,
+            TimelineDataRecord,
+        )
+
+        identity_type = str(
+            data.get("identity_type") or ""
+        ).lower()
+
+        identity_id = data.get("identity_id")
         session_id = data.get("session_id")
         timeline_id = data.get("timeline_id")
+
         confidence = round(
             float(data.get("confidence_pct") or 0.0),
             2,
         )
 
-        if not member_id or not session_id:
+        if (
+            identity_type not in {"member", "guest"}
+            or not identity_id
+            or not session_id
+        ):
             return
+
+        attendance_filter = {
+            "session_id": session_id,
+        }
+
+        if identity_type == "member":
+            attendance_filter["member_id"] = identity_id
+        else:
+            attendance_filter["guest_id"] = identity_id
 
         try:
             if not timeline_id:
                 attendance = (
                     Attendance.objects
                     .filter(
-                        member_id=member_id,
-                        session_id=session_id,
+                        **attendance_filter,
                         facedetection_id__isnull=False,
                     )
                     .only("facedetection_id")
@@ -1091,30 +1378,40 @@ class SessionManager:
                     timeline_id = attendance.facedetection_id
 
             if timeline_id:
-                TimelineDataRecord.objects.filter(
-                    id=timeline_id,
-                ).filter(
-                    Q(confidence__isnull=True)
-                    | Q(confidence__lt=confidence)
-                ).update(
-                    confidence=confidence,
-                    face_image=data.get("face_image_bytes"),
-                    face_encoding=data.get("face_encoding"),
+                (
+                    TimelineDataRecord.objects
+                    .filter(id=timeline_id)
+                    .filter(
+                        Q(confidence__isnull=True)
+                        | Q(confidence__lt=confidence)
+                    )
+                    .update(
+                        confidence=confidence,
+                        face_image=data.get(
+                            "face_image_bytes"
+                        ),
+                        face_encoding=data.get(
+                            "face_encoding"
+                        ),
+                    )
                 )
 
-            Attendance.objects.filter(
-                member_id=member_id,
-                session_id=session_id,
-            ).filter(
-                Q(confidence__isnull=True)
-                | Q(confidence__lt=confidence)
-            ).update(
-                confidence=confidence,
+            (
+                Attendance.objects
+                .filter(**attendance_filter)
+                .filter(
+                    Q(confidence__isnull=True)
+                    | Q(confidence__lt=confidence)
+                )
+                .update(
+                    confidence=confidence,
+                )
             )
 
             logger.debug(
-                f"[DBWriter] KNOWN best evidence updated: "
-                f"member_id={member_id} | "
+                "[DBWriter] Recognized evidence updated: "
+                f"type={identity_type} | "
+                f"id={identity_id} | "
                 f"session_id={session_id} | "
                 f"timeline_id={timeline_id} | "
                 f"confidence={confidence}%"
@@ -1122,46 +1419,70 @@ class SessionManager:
 
         except Exception as exc:
             logger.error(
-                f"[DBWriter] Gagal update KNOWN best evidence: {exc}"
+                "[DBWriter] Gagal update recognized evidence: "
+                f"{exc}"
             )
 
     @staticmethod
-    def _save_detection_to_db(data: dict) -> int | None:
+    def _save_detection_to_db(
+        data: dict,
+    ) -> int | None:
         """
-        Menyimpan satu hasil final track ke TimelineDataRecord.
+        Menyimpan hasil final track.
 
-        Flow attendance baru:
+        Flow:
         - KNOWN:
-            1. Buat TimelineDataRecord verified.
-            2. Buat Attendance untuk member yang benar-benar hadir.
+            Timeline verified + Attendance member.
+        - GUEST:
+            Timeline verified + Attendance guest.
+            Guest row lama di-update, tidak membuat Guest baru.
         - UNKNOWN / AMBIGUOUS:
-            1. Buat TimelineDataRecord pending.
-            2. Belum membuat Attendance.
+            Timeline pending saja.
         """
 
         from django.db import transaction
+
         from attendance.models import (
             Attendance,
+            Guest,
             TimelineDataRecord,
             WorshipSession,
         )
 
         capture_time = data["capture_time"]
+
         member_id = data.get("matched_member_id")
+        guest_id = data.get("matched_guest_id")
+
         confidence = round(
             float(data.get("confidence_pct") or 0.0),
             2,
         )
-        status = str(data.get("status") or "").upper()
+
+        status = str(
+            data.get("status") or ""
+        ).upper()
+
         session_id = data.get("session_id")
 
-        is_known = (
+        is_member = (
             status == "KNOWN"
             and member_id is not None
         )
 
+        is_guest = (
+            status == "GUEST"
+            and guest_id is not None
+        )
+
+        is_recognized = is_member or is_guest
+
+        # Model lama memakai "know", bukan "known".
+        # Guest recognized juga disimpan sebagai detection_status="know".
+        # Pembedanya adalah final_member atau final_guest.
         detection_status_map = {
             "KNOWN": "know",
+            "GUEST": "know",
             "UNKNOWN": "unknown",
             "AMBIGUOUS": "ambiguous",
         }
@@ -1171,45 +1492,19 @@ class SessionManager:
             status.lower(),
         )
 
-        if is_known and not session_id:
+        if is_recognized and not session_id:
             logger.error(
-                "[DBWriter] KNOWN tidak dapat disimpan karena "
-                "session_id kosong."
+                "[DBWriter] Recognized identity tidak dapat disimpan "
+                "karena session_id kosong."
             )
             return None
 
         try:
             with transaction.atomic():
-                timeline = TimelineDataRecord.objects.create(
-                    capture_time=capture_time,
-                    face_image=data.get("face_image_bytes"),
-                    face_encoding=data.get("face_encoding"),
-                    detection_status=detection_status_db,
-                    confidence=confidence,
-                    matched_member_id=member_id,
-                    validation_status=(
-                        "verified"
-                        if is_known
-                        else "pending"
-                    ),
-                    validated_at=(
-                        capture_time
-                        if is_known
-                        else None
-                    ),
-                    final_member_id=(
-                        member_id
-                        if is_known
-                        else None
-                    ),
-                    final_guest=None,
-                    notes="",
-                )
+                worship_session = None
+                guest = None
 
-                # ======================================================
-                # KNOWN: langsung buat Attendance karena benar-benar hadir
-                # ======================================================
-                if is_known:
+                if is_recognized:
                     worship_session = (
                         WorshipSession.objects
                         .select_for_update()
@@ -1219,9 +1514,73 @@ class SessionManager:
 
                     if not worship_session:
                         raise ValueError(
-                            f"WorshipSession id={session_id} tidak ditemukan."
+                            f"WorshipSession id={session_id} "
+                            "tidak ditemukan."
                         )
 
+                if is_guest:
+                    guest = (
+                        Guest.objects
+                        .select_for_update()
+                        .filter(id=guest_id)
+                        .first()
+                    )
+
+                    if not guest:
+                        raise ValueError(
+                            f"Guest id={guest_id} tidak ditemukan."
+                        )
+
+                    # Perlindungan tambahan jika guest dikonversi
+                    # ketika session sedang berlangsung.
+                    if guest.converted_to_member_id is not None:
+                        raise ValueError(
+                            f"Guest id={guest_id} sudah dikonversi "
+                            "menjadi member dan tidak boleh diproses "
+                            "sebagai Guest."
+                        )
+
+                timeline = TimelineDataRecord.objects.create(
+                    capture_time=capture_time,
+                    face_image=data.get("face_image_bytes"),
+                    face_encoding=data.get("face_encoding"),
+                    detection_status=detection_status_db,
+                    confidence=confidence,
+
+                    # Kandidat member lama tetap disimpan hanya jika ada.
+                    matched_member_id=(
+                        member_id
+                        if member_id is not None
+                        else None
+                    ),
+
+                    validation_status=(
+                        "verified"
+                        if is_recognized
+                        else "pending"
+                    ),
+                    validated_at=(
+                        capture_time
+                        if is_recognized
+                        else None
+                    ),
+                    final_member_id=(
+                        member_id
+                        if is_member
+                        else None
+                    ),
+                    final_guest_id=(
+                        guest_id
+                        if is_guest
+                        else None
+                    ),
+                    notes="",
+                )
+
+                # ======================================================
+                # MEMBER AUTO ATTENDANCE
+                # ======================================================
+                if is_member:
                     existing_attendance = (
                         Attendance.objects
                         .select_for_update()
@@ -1232,32 +1591,27 @@ class SessionManager:
                         .first()
                     )
 
+                    if (
+                        existing_attendance
+                        and existing_attendance.facedetection_id
+                    ):
+                        existing_timeline_id = (
+                            existing_attendance.facedetection_id
+                        )
+
+                        timeline.delete()
+
+                        logger.info(
+                            "[DBWriter] Member duplicate dicegah: "
+                            f"member_id={member_id} | "
+                            f"session_id={session_id} | "
+                            f"existing_timeline_id="
+                            f"{existing_timeline_id}"
+                        )
+
+                        return existing_timeline_id
+
                     if existing_attendance:
-                        # Kondisi ini dapat terjadi karena:
-                        # - manual attendance;
-                        # - race condition;
-                        # - data lama;
-                        # - member sudah masuk sebelumnya.
-
-                        if existing_attendance.facedetection_id:
-                            existing_timeline_id = (
-                                existing_attendance.facedetection_id
-                            )
-
-                            # Timeline baru tidak perlu dibiarkan menjadi orphan.
-                            timeline.delete()
-
-                            logger.info(
-                                "[DBWriter] KNOWN duplicate dicegah: "
-                                f"member_id={member_id} | "
-                                f"session_id={session_id} | "
-                                f"existing_timeline_id={existing_timeline_id}"
-                            )
-
-                            return existing_timeline_id
-
-                        # Mendukung attendance manual/legacy yang belum memiliki
-                        # face detection, tetapi orangnya memang sudah hadir.
                         existing_attendance.member_id = member_id
                         existing_attendance.guest = None
                         existing_attendance.facedetection = timeline
@@ -1265,11 +1619,13 @@ class SessionManager:
                         existing_attendance.attendance_date = (
                             capture_time.date()
                         )
-                        existing_attendance.check_in_time = capture_time
+                        existing_attendance.check_in_time = (
+                            capture_time
+                        )
                         existing_attendance.confidence = confidence
-
-                        if not existing_attendance.notes:
-                            existing_attendance.notes = ""
+                        existing_attendance.notes = (
+                            existing_attendance.notes or ""
+                        )
 
                         existing_attendance.save(
                             update_fields=[
@@ -1292,37 +1648,168 @@ class SessionManager:
                             guest=None,
                             facedetection=timeline,
                             session_id=session_id,
-                            attendance_date=capture_time.date(),
+                            attendance_date=(
+                                capture_time.date()
+                            ),
                             check_in_time=capture_time,
                             confidence=confidence,
                             notes="",
                         )
 
                     logger.info(
-                        "[DBWriter] KNOWN attendance created: "
+                        "[DBWriter] MEMBER attendance saved: "
                         f"attendance_id={attendance.id} | "
                         f"member_id={member_id} | "
                         f"timeline_id={timeline.id} | "
-                        f"session_id={session_id} | "
-                        f"first_detected_at={capture_time.isoformat()}"
+                        f"session_id={session_id}"
                     )
 
+                    return timeline.id
+
                 # ======================================================
-                # UNKNOWN / AMBIGUOUS belum masuk Attendance
+                # GUEST AUTO ATTENDANCE
                 # ======================================================
-                else:
-                    logger.info(
-                        f"[DBWriter] {status} finalized: "
-                        f"timeline_id={timeline.id} | "
-                        f"track_id={data.get('track_id')} | "
-                        f"first_detected_at={capture_time.isoformat()} | "
-                        f"attempts={data.get('recognition_attempts')}"
+                if is_guest:
+                    existing_attendance = (
+                        Attendance.objects
+                        .select_for_update()
+                        .filter(
+                            session_id=session_id,
+                            guest_id=guest_id,
+                        )
+                        .first()
                     )
+
+                    if (
+                        existing_attendance
+                        and existing_attendance.facedetection_id
+                    ):
+                        existing_timeline_id = (
+                            existing_attendance.facedetection_id
+                        )
+
+                        timeline.delete()
+
+                        logger.info(
+                            "[DBWriter] Guest duplicate dicegah: "
+                            f"guest_id={guest_id} | "
+                            f"session_id={session_id} | "
+                            f"existing_timeline_id="
+                            f"{existing_timeline_id}"
+                        )
+
+                        return existing_timeline_id
+
+                    if existing_attendance:
+                        # Attendance manual/legacy sudah ada.
+                        # Evidence dilengkapi, tetapi visit_count tidak
+                        # ditambah lagi karena attendance memang sudah ada.
+                        existing_attendance.member = None
+                        existing_attendance.guest_id = guest_id
+                        existing_attendance.facedetection = timeline
+                        existing_attendance.session_id = session_id
+                        existing_attendance.attendance_date = (
+                            capture_time.date()
+                        )
+                        existing_attendance.check_in_time = (
+                            capture_time
+                        )
+                        existing_attendance.confidence = confidence
+                        existing_attendance.notes = (
+                            existing_attendance.notes or ""
+                        )
+
+                        existing_attendance.save(
+                            update_fields=[
+                                "member",
+                                "guest",
+                                "facedetection",
+                                "session",
+                                "attendance_date",
+                                "check_in_time",
+                                "confidence",
+                                "notes",
+                            ]
+                        )
+
+                        attendance = existing_attendance
+                        visit_incremented = False
+
+                    else:
+                        attendance = Attendance.objects.create(
+                            member=None,
+                            guest_id=guest_id,
+                            facedetection=timeline,
+                            session_id=session_id,
+                            attendance_date=(
+                                capture_time.date()
+                            ),
+                            check_in_time=capture_time,
+                            confidence=confidence,
+                            notes="",
+                        )
+
+                        visit_incremented = True
+
+                    # Guest hanya di-update ketika attendance session ini
+                    # benar-benar baru dibuat.
+                    if visit_incremented:
+                        visit_date = capture_time.date()
+
+                        guest.visit_count = (
+                            int(guest.visit_count or 0) + 1
+                        )
+
+                        if (
+                            guest.first_visit is None
+                            or visit_date < guest.first_visit
+                        ):
+                            guest.first_visit = visit_date
+
+                        if (
+                            guest.last_visit is None
+                            or visit_date > guest.last_visit
+                        ):
+                            guest.last_visit = visit_date
+
+                        guest.save(
+                            update_fields=[
+                                "visit_count",
+                                "first_visit",
+                                "last_visit",
+                            ]
+                        )
+
+                    logger.info(
+                        "[DBWriter] GUEST attendance saved: "
+                        f"attendance_id={attendance.id} | "
+                        f"guest_id={guest_id} | "
+                        f"timeline_id={timeline.id} | "
+                        f"session_id={session_id} | "
+                        f"visit_incremented={visit_incremented} | "
+                        f"visit_count={guest.visit_count}"
+                    )
+
+                    return timeline.id
+
+                # ======================================================
+                # UNKNOWN / AMBIGUOUS
+                # ======================================================
+                logger.info(
+                    f"[DBWriter] {status} finalized: "
+                    f"timeline_id={timeline.id} | "
+                    f"track_id={data.get('track_id')} | "
+                    f"first_detected_at="
+                    f"{capture_time.isoformat()} | "
+                    f"attempts="
+                    f"{data.get('recognition_attempts')}"
+                )
 
                 return timeline.id
 
         except Exception as exc:
             logger.error(
-                f"[DBWriter] _save_detection_to_db error: {exc}"
+                "[DBWriter] _save_detection_to_db error: "
+                f"{exc}"
             )
             return None

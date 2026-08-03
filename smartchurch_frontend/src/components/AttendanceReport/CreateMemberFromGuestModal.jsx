@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, Loader2, UserPlus } from 'lucide-react';
-import { createMember, updateGuest } from '../../service/apiClient';
+import { convertGuestToMember } from '../../service/apiClient';
 
 export default function CreateMemberFromGuestModal({ guest, onClose, onCreated }) {
   const [form, setForm] = useState({
@@ -33,8 +33,7 @@ export default function CreateMemberFromGuestModal({ guest, onClose, onCreated }
       if (!payload.address) delete payload.address;
       if (!payload.nickname) delete payload.nickname;
 
-      const newMember = await createMember(payload);
-      await updateGuest(guest.id, { converted_to_member: newMember.id });
+      await convertGuestToMember(guest.id, payload);
       onCreated();
     } catch {
       setError('Gagal membuat anggota. Coba lagi.');

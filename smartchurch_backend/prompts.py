@@ -59,6 +59,7 @@ MAIN_AGENT_SYSTEM_PROMPT = dedent("""
     </sql_rules>
 
     <business_context>
+    - Waktu sekarang adalah $current_time WIB (Asia/Jakarta)
     - Untuk semua filter tanggal dan agregasi harian/bulanan/tahunan kehadiran,
       tanggal kehadiran diambil dari sesi ibadah:
       JOIN tm_worship_session s ON s.id = t_attendance.session_id

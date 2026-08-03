@@ -3,6 +3,7 @@ import json
 import os
 import traceback
 import uuid
+from string import Template
 from typing import Annotated, Optional
 from django.conf import (
     settings,
@@ -15,6 +16,7 @@ from typing_extensions import TypedDict
 from asgiref.sync import sync_to_async
 from cachetools import TTLCache
 from langchain.agents import create_agent
+from langchain.agents.middleware import ModelRequest, dynamic_prompt
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
@@ -46,6 +48,8 @@ from .tools import (
     update_canvas,
     clear_canvas,
 )
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 # LangSmith tracing — configure from Django settings (moved to settings.py)
 langsmith_api_key = getattr(
@@ -150,7 +154,7 @@ def get_user_id_from_request(request) -> Optional[int]:
 # ---------------------------------------------------------------------------
 
 llm = ChatOpenRouter(
-    model="~moonshotai/kimi-latest",
+    model="moonshotai/kimi-k2.6",
     temperature=0.0,
     streaming=True,
 )
@@ -220,23 +224,28 @@ def _build_graph():
             goto=END,
         )
 
-    @traceable(name="Main Agent", run_type="chain")
-    def _make_main_agent():
-        return create_agent(
-            model=llm,
-            tools=[
-                query_postgres,
-                generate_seaborn_plot,
-                get_schema,
-                update_canvas,
-                clear_canvas,
-            ],
-            system_prompt=MAIN_AGENT_SYSTEM_PROMPT,
-            state_schema=GraphState,
-            name="Main Agent",
+    @dynamic_prompt
+    def _main_agent_prompt(request: ModelRequest) -> str:
+        current_time = datetime.now(ZoneInfo("Asia/Jakarta")).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        return Template(MAIN_AGENT_SYSTEM_PROMPT).safe_substitute(
+            current_time=current_time
         )
 
-    main_agent = _make_main_agent()
+    main_agent = create_agent(
+        model=llm,
+        tools=[
+            query_postgres,
+            generate_seaborn_plot,
+            get_schema,
+            update_canvas,
+            clear_canvas,
+        ],
+        middleware=[_main_agent_prompt],
+        state_schema=GraphState,
+        name="Main Agent",
+    )
 
     graph = StateGraph(GraphState)
     graph.add_node(GUARDRAIL_NODE_NAME, _guardrail_node)

@@ -86,9 +86,7 @@ void loop() {
 
         // ======================================================
         // Distance Zone Classification
-        //
         // 0–249 cm   : Entrance (IN)
-        // 250–259 cm : Dead Zone (Ignored)
         // 260–300 cm : Exit (OUT)
         // ======================================================
 
@@ -110,25 +108,18 @@ void loop() {
           digitalWrite(BUZZER_PIN, LOW);
 
         }
-        else if (distance >= 260 && distance <= 300) {
+        else if (distance >= 251 && distance <= 300) {
 
           direction = "out";
           validZone = true;
 
-          Serial.println("\n[OUT] Person exited (Distance ≥ 2.6 m)");
+          Serial.println("\n[OUT] Person exited (Distance ≥ 2.51 m)");
 
           // Single long beep
           digitalWrite(BUZZER_PIN, HIGH);
           delay(300);
           digitalWrite(BUZZER_PIN, LOW);
 
-        }
-        else if (distance >= 250 && distance <= 259) {
-
-          // Ignore measurements inside the dead zone
-          Serial.print("\n[INFO] Detection within dead zone (");
-          Serial.print(distance);
-          Serial.println(" cm). Ignored to reduce false triggering.");
         }
 
         // ======================================================

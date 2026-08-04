@@ -111,7 +111,7 @@ def xlsx_sheet_xml(rows):
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
         f"<cols>{cols_xml}</cols>"
         f'<sheetData>{"".join(row_xml)}</sheetData>'
-        '</worksheet>'
+        "</worksheet>"
     )
 
 
@@ -123,21 +123,21 @@ def xlsx_styles_xml():
         '<font><sz val="11"/><color rgb="FF334155"/><name val="Calibri"/></font>'
         '<font><b/><sz val="16"/><color rgb="FF0F172A"/><name val="Calibri"/></font>'
         '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'
-        '</fonts>'
+        "</fonts>"
         '<fills count="5">'
         '<fill><patternFill patternType="none"/></fill>'
         '<fill><patternFill patternType="gray125"/></fill>'
         '<fill><patternFill patternType="solid"><fgColor rgb="FF7C3AED"/><bgColor indexed="64"/></patternFill></fill>'
         '<fill><patternFill patternType="solid"><fgColor rgb="FFF5F3FF"/><bgColor indexed="64"/></patternFill></fill>'
         '<fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/><bgColor indexed="64"/></patternFill></fill>'
-        '</fills>'
+        "</fills>"
         '<borders count="2">'
-        '<border><left/><right/><top/><bottom/><diagonal/></border>'
+        "<border><left/><right/><top/><bottom/><diagonal/></border>"
         '<border><left style="thin"><color rgb="FFE2E8F0"/></left>'
         '<right style="thin"><color rgb="FFE2E8F0"/></right>'
         '<top style="thin"><color rgb="FFE2E8F0"/></top>'
         '<bottom style="thin"><color rgb="FFE2E8F0"/></bottom><diagonal/></border>'
-        '</borders>'
+        "</borders>"
         '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
         '<cellXfs count="5">'
         '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
@@ -145,9 +145,9 @@ def xlsx_styles_xml():
         '<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>'
         '<xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
         '<xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
-        '</cellXfs>'
+        "</cellXfs>"
         '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
-        '</styleSheet>'
+        "</styleSheet>"
     )
 
 
@@ -226,6 +226,7 @@ def build_xlsx_response_bytes(sheets):
     output.seek(0)
     return output.getvalue()
 
+
 def get_year_range(year_param):
     try:
         year = int(year_param) if year_param else None
@@ -236,6 +237,7 @@ def get_year_range(year_param):
     start = date(year, 1, 1)
     end = date(year + 1, 1, 1)
     return start, end
+
 
 def generate_need_followup_members_report(date_value=None):
     """
@@ -277,8 +279,7 @@ def generate_need_followup_members_report(date_value=None):
         oldest_meeting_date = last_3_meetings[-1]
 
         absent_ids = (
-            Member.objects
-            .filter(
+            Member.objects.filter(
                 member_status="active",
                 created_at__date__lte=oldest_meeting_date,
             )
@@ -301,8 +302,7 @@ def generate_need_followup_members_report(date_value=None):
     three_months_ago = target_date - relativedelta(months=3)
 
     period1_qs = (
-        Attendance.objects
-        .filter(
+        Attendance.objects.filter(
             member__created_at__date__lte=a_year_ago,
             attendance_date__gte=a_year_ago,
             attendance_date__lte=three_months_ago,
@@ -313,8 +313,7 @@ def generate_need_followup_members_report(date_value=None):
     )
 
     sessions_1 = (
-        Attendance.objects
-        .filter(
+        Attendance.objects.filter(
             attendance_date__gte=a_year_ago,
             attendance_date__lte=three_months_ago,
             member_id__isnull=False,
@@ -337,8 +336,7 @@ def generate_need_followup_members_report(date_value=None):
         }
 
         period2_qs = (
-            Attendance.objects
-            .filter(
+            Attendance.objects.filter(
                 member__created_at__date__lte=a_year_ago,
                 attendance_date__gt=three_months_ago,
                 attendance_date__lte=target_date,
@@ -349,8 +347,7 @@ def generate_need_followup_members_report(date_value=None):
         )
 
         sessions_2 = (
-            Attendance.objects
-            .filter(
+            Attendance.objects.filter(
                 attendance_date__gt=three_months_ago,
                 attendance_date__lte=target_date,
                 member_id__isnull=False,
@@ -447,6 +444,7 @@ def generate_need_followup_members_report(date_value=None):
         ),
     }
 
+
 class TimelineDataRecordViewSet(viewsets.ModelViewSet):
     queryset = (
         TimelineDataRecord.objects.select_related(
@@ -459,7 +457,7 @@ class TimelineDataRecordViewSet(viewsets.ModelViewSet):
 
 
 class AttendanceViewSet(viewsets.ModelViewSet):
-    queryset = Attendance.objects.all().order_by('-check_in_time')
+    queryset = Attendance.objects.all().order_by("-check_in_time")
     serializer_class = AttendanceSerializer
 
     @action(detail=False, methods=["get"], url_path="face-image")
@@ -470,25 +468,35 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
         try:
             if attendance_id:
-                attendance = Attendance.objects.select_related("facedetection").get(id=attendance_id)
+                attendance = Attendance.objects.select_related("facedetection").get(
+                    id=attendance_id
+                )
             elif facedetection_id:
-                attendance = Attendance.objects.select_related("facedetection").filter(
-                    facedetection_id=facedetection_id
-                ).first()
+                attendance = (
+                    Attendance.objects.select_related("facedetection")
+                    .filter(facedetection_id=facedetection_id)
+                    .first()
+                )
             else:
                 return Response(
-                    {"error": "attendance_id or facedetection_id parameter is required"},
+                    {
+                        "error": "attendance_id or facedetection_id parameter is required"
+                    },
                     status=400,
                 )
         except Attendance.DoesNotExist:
             return Response({"error": "Attendance not found."}, status=404)
 
         if not attendance:
-            return Response({"error": "No attendance linked to that face detection."}, status=404)
+            return Response(
+                {"error": "No attendance linked to that face detection."}, status=404
+            )
 
         record = attendance.facedetection
         if not record or not record.face_image:
-            return Response({"error": "No face image recorded for this attendance."}, status=404)
+            return Response(
+                {"error": "No face image recorded for this attendance."}, status=404
+            )
 
         try:
             encoded = base64.b64encode(record.face_image).decode("utf-8")
@@ -501,30 +509,35 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 class WorshipSessionViewSet(viewsets.ModelViewSet):
     queryset = WorshipSession.objects.all()
     # Assume you or your friend already created a serializer for this
-    # serializer_class = WorshipSessionSerializer 
+    # serializer_class = WorshipSessionSerializer
 
     serializer_class = WorshipSessionSerializer
-    
+
     # ============================================================
     # 1. GATEWAY: START SESSION (POST /api/worship-sessions/start_session/)
     # ============================================================
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=["post"])
     def start_session(self, request):
-        session_name = request.data.get('session_name')
-        
-        active_session = WorshipSession.objects.filter(status='active').first()
+        session_name = request.data.get("session_name")
+
+        active_session = WorshipSession.objects.filter(status="active").first()
         if active_session:
-            return Response({"error": "Masih ada sesi yang aktif. Akhiri sesi sebelumnya terlebih dahulu."}, status=400)
+            return Response(
+                {
+                    "error": "Masih ada sesi yang aktif. Akhiri sesi sebelumnya terlebih dahulu."
+                },
+                status=400,
+            )
 
         if not session_name:
-             return Response({"error": "Nama sesi wajib diisi!"}, status=400)
+            return Response({"error": "Nama sesi wajib diisi!"}, status=400)
 
         # 👇 PASTIKAN BAGIAN INI MENYERTAKAN date=timezone.now().date() 👇
         new_session = WorshipSession.objects.create(
             session_name=session_name,
-            date=timezone.now().date(),    # INI YANG TADI HILANG
+            date=timezone.now().date(),  # INI YANG TADI HILANG
             start_time=timezone.now(),
-            status='active'
+            status="active",
         )
 
         serializer = self.get_serializer(new_session)
@@ -533,38 +546,42 @@ class WorshipSessionViewSet(viewsets.ModelViewSet):
     # ============================================================
     # 2. GATEWAY: END SESSION (POST /api/worship-sessions/end_session/)
     # ============================================================
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=["post"])
     def end_session(self, request):
         """Closes the currently active session and locks the final timestamp."""
-        session_id = request.data.get('session_id')
+        session_id = request.data.get("session_id")
 
         try:
             # Find the targeted session in the database
             session = WorshipSession.objects.get(id=session_id)
-            
-            if session.status == 'completed':
+
+            if session.status == "completed":
                 return Response(
-                    {"error": "This session has already been closed dynamicly."}, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"error": "This session has already been closed dynamicly."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             # Update the lifecycle metadata
-            session.status = 'completed'
+            session.status = "completed"
             session.end_time = timezone.now()
             session.save()
 
-            return Response({
-                "message": "Worship session closed successfully.",
-                "session_id": session.id,
-                "status": session.status,
-                "end_time": session.end_time
-            }, status=status.HTTP_200_OK)
+            return Response(
+                {
+                    "message": "Worship session closed successfully.",
+                    "session_id": session.id,
+                    "status": session.status,
+                    "end_time": session.end_time,
+                },
+                status=status.HTTP_200_OK,
+            )
 
         except WorshipSession.DoesNotExist:
             return Response(
-                {"error": "Worship session not found."}, 
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "Worship session not found."},
+                status=status.HTTP_404_NOT_FOUND,
             )
+
 
 class SummaryReportViewSet(viewsets.ModelViewSet):
     queryset = SummaryReport.objects.all().order_by("-created_at")
@@ -832,7 +849,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
             followup_csv=followup_csv,
             wajib_charts=wajib_charts,
         )
-        llm = ChatOpenRouter(model="~moonshotai/kimi-latest", temperature=0.3)
+        llm = ChatOpenRouter(model="moonshotai/kimi-k2.6:nitro", temperature=0.3)
         response = llm.invoke([HumanMessage(content=report_prompt)])
         report = response.content
 
@@ -877,19 +894,20 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
             )
 
         if start_date > end_date:
-            return Response({"error": "start_date must be before or equal to end_date"}, status=400)
+            return Response(
+                {"error": "start_date must be before or equal to end_date"}, status=400
+            )
 
         sessions = list(
-            WorshipSession.objects
-            .filter(date__gte=start_date, date__lte=end_date)
-            .order_by("date", "start_time", "id")
+            WorshipSession.objects.filter(
+                date__gte=start_date, date__lte=end_date
+            ).order_by("date", "start_time", "id")
         )
         session_ids = [session.id for session in sessions]
 
         attendances_by_session = defaultdict(list)
         attendance_rows = (
-            Attendance.objects
-            .filter(session_id__in=session_ids)
+            Attendance.objects.filter(session_id__in=session_ids)
             .filter(Q(member__isnull=False) | Q(guest__isnull=False))
             .select_related("member", "guest", "session")
             .order_by("check_in_time", "id")
@@ -900,15 +918,18 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
         summary_rows = [
             [(f"Attendance summary {start_date_value} - {end_date_value}", 1)],
             [],
-            styled_row([
-            "Date",
-            "Session Name",
-            "Member Present",
-            "Guest Present",
-            "Total Present",
-            "Eligible Active Members",
-            "Member attendance Percentage",
-            ], 2),
+            styled_row(
+                [
+                    "Date",
+                    "Session Name",
+                    "Member Present",
+                    "Guest Present",
+                    "Total Present",
+                    "Eligible Active Members",
+                    "Member attendance Percentage",
+                ],
+                2,
+            ),
         ]
 
         used_sheet_titles = {"Summary"}
@@ -937,7 +958,10 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
 
             attendees = sorted(
                 earliest_by_key.values(),
-                key=lambda item: (0 if item["type"] == "member" else 1, item["name"].lower()),
+                key=lambda item: (
+                    0 if item["type"] == "member" else 1,
+                    item["name"].lower(),
+                ),
             )
             member_present = sum(1 for item in attendees if item["type"] == "member")
             guest_present = sum(1 for item in attendees if item["type"] == "guest")
@@ -945,17 +969,26 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                 member_status="active",
                 created_at__date__lte=session.date,
             ).count()
-            percentage = round((member_present / eligible_members) * 100, 2) if eligible_members else 0
+            percentage = (
+                round((member_present / eligible_members) * 100, 2)
+                if eligible_members
+                else 0
+            )
 
-            summary_rows.append(zebra_row([
-                session.date,
-                session.session_name,
-                member_present,
-                guest_present,
-                member_present + guest_present,
-                eligible_members,
-                percentage,
-            ], len(summary_rows) - 2))
+            summary_rows.append(
+                zebra_row(
+                    [
+                        session.date,
+                        session.session_name,
+                        member_present,
+                        guest_present,
+                        member_present + guest_present,
+                        eligible_members,
+                        percentage,
+                    ],
+                    len(summary_rows) - 2,
+                )
+            )
 
             sheet_title = sanitize_sheet_title(
                 f"Worship {session.date} - {session.session_name}",
@@ -963,12 +996,17 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
             )
             sheet_rows = [styled_row(["No.", "Name", "check_in_time", "type"], 2)]
             for index, attendee in enumerate(attendees, start=1):
-                sheet_rows.append(zebra_row([
-                    index,
-                    attendee["name"],
-                    format_check_in_time(attendee["check_in_time"]),
-                    attendee["type"],
-                ], index))
+                sheet_rows.append(
+                    zebra_row(
+                        [
+                            index,
+                            attendee["name"],
+                            format_check_in_time(attendee["check_in_time"]),
+                            attendee["type"],
+                        ],
+                        index,
+                    )
+                )
             sheets.append((sheet_title, sheet_rows))
 
         sheets.insert(0, ("Summary", summary_rows))
@@ -981,8 +1019,10 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
         )
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
-    
-    @action(detail=False, methods=["post"], url_path="generate-followup-recommendations")
+
+    @action(
+        detail=False, methods=["post"], url_path="generate-followup-recommendations"
+    )
     def generate_followup_recommendations(self, request):
         """
         POST /api/reports/generate-followup-recommendations/
@@ -1028,8 +1068,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="follow-up-recommendations")
     def follow_up_recommendations(self, request):
         qs = (
-            FollowupMember.objects
-            .select_related("member")
+            FollowupMember.objects.select_related("member")
             .filter(status_followup="new")
             .order_by("-created_at")
         )
@@ -1059,15 +1098,22 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                 pass
 
         sessions_qs = qs.annotate(
-            member_count=Count("attendances__member", filter=Q(attendances__member__isnull=False), distinct=True),
-            guest_count=Count("attendances__guest", filter=Q(attendances__guest__isnull=False), distinct=True),
+            member_count=Count(
+                "attendances__member",
+                filter=Q(attendances__member__isnull=False),
+                distinct=True,
+            ),
+            guest_count=Count(
+                "attendances__guest",
+                filter=Q(attendances__guest__isnull=False),
+                distinct=True,
+            ),
         ).order_by("-date", "-start_time")
 
         attended_member_ids_by_session = defaultdict(set)
         attended_guest_ids_by_session = defaultdict(set)
         attendance_rows = (
-            Attendance.objects
-            .filter(session__in=sessions_qs)
+            Attendance.objects.filter(session__in=sessions_qs)
             .filter(Q(member__isnull=False) | Q(guest__isnull=False))
             .values_list("session_id", "member_id", "guest_id")
             .distinct()
@@ -1088,20 +1134,22 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                 created_at__date__lte=session_date,
             ).count()
             absent = max(0, eligible - len(member_ids))
-            data.append({
-                "session_id": session.id,
-                "session_name": session.session_name,
-                "status": session.status,
-                "date": session_date,
-                "start_time": session.start_time, 
-                "end_time": session.end_time,
-                "total": len(member_ids) + len(guest_ids),
-                "member_count": len(member_ids),
-                "member_ids": member_ids,
-                "guest_count": len(guest_ids),
-                "guest_ids": guest_ids,
-                "absent_count": absent,
-            })
+            data.append(
+                {
+                    "session_id": session.id,
+                    "session_name": session.session_name,
+                    "status": session.status,
+                    "date": session_date,
+                    "start_time": session.start_time,
+                    "end_time": session.end_time,
+                    "total": len(member_ids) + len(guest_ids),
+                    "member_count": len(member_ids),
+                    "member_ids": member_ids,
+                    "guest_count": len(guest_ids),
+                    "guest_ids": guest_ids,
+                    "absent_count": absent,
+                }
+            )
         serializer = SessionSerializer(data, many=True)
         return Response(serializer.data)
 
@@ -1118,9 +1166,8 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
 
         session_date = session.date
 
-        attendances = (
-            Attendance.objects.filter(session_id=session_id)
-            .select_related("member", "guest")
+        attendances = Attendance.objects.filter(session_id=session_id).select_related(
+            "member", "guest"
         )
 
         members_by_id = {}
@@ -1156,21 +1203,25 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
             member_status="active",
             created_at__date__lte=session_date,
         )
-        
+
         absent_members = []
         for m in eligible_members:
             if m.id not in attended_member_ids:
-                absent_members.append({
-                    "id": m.id,
-                    "full_name": m.full_name,
-                    "phone": m.phone,
-                })
+                absent_members.append(
+                    {
+                        "id": m.id,
+                        "full_name": m.full_name,
+                        "phone": m.phone,
+                    }
+                )
 
-        return Response({
-            "members": list(members_by_id.values()),
-            "guests": list(guests_by_id.values()),
-            "absent": absent_members,
-        })
+        return Response(
+            {
+                "members": list(members_by_id.values()),
+                "guests": list(guests_by_id.values()),
+                "absent": absent_members,
+            }
+        )
 
     @action(detail=False, methods=["post"], url_path="mark-member-present")
     def mark_member_present(self, request):
@@ -1178,7 +1229,9 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
         member_id = request.data.get("member_id")
 
         if not session_id or not member_id:
-            return Response({"error": "session_id and member_id are required"}, status=400)
+            return Response(
+                {"error": "session_id and member_id are required"}, status=400
+            )
 
         try:
             session = WorshipSession.objects.get(id=session_id)
@@ -1186,17 +1239,22 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
         except (WorshipSession.DoesNotExist, Member.DoesNotExist):
             return Response({"error": "Session or Member not found."}, status=404)
 
-        if Attendance.objects.filter(session_id=session_id, member_id=member_id).exists():
-            return Response({"error": "Member is already present in this session."}, status=400)
+        if Attendance.objects.filter(
+            session_id=session_id, member_id=member_id
+        ).exists():
+            return Response(
+                {"error": "Member is already present in this session."}, status=400
+            )
 
         Attendance.objects.create(
             session=session,
             member=member,
             attendance_date=session.date,
-            check_in_time=timezone.now()
+            check_in_time=timezone.now(),
         )
 
         return Response({"success": True, "message": "Member marked as present."})
+
 
 class FollowupMemberViewSet(viewsets.ModelViewSet):
     queryset = FollowupMember.objects.select_related("member").order_by("-created_at")

@@ -154,12 +154,12 @@ def get_user_id_from_request(request) -> Optional[int]:
 # ---------------------------------------------------------------------------
 
 llm = ChatOpenRouter(
-    model="moonshotai/kimi-k2.6",
+    model="moonshotai/kimi-k2.6:nitro",
     temperature=0.0,
     streaming=True,
 )
 llm_not_thinking = ChatOpenRouter(
-    model="~google/gemini-flash-latest",
+    model="~google/gemini-flash-latest:nitro",
     temperature=0.0,
     streaming=False,
     reasoning={"effort": "none"},
@@ -364,9 +364,9 @@ def _save_conversation_title_sync(thread_id: str, title: str):
 
 async def generate_conversation_title(user_message: str) -> str:
     title_llm = ChatOpenRouter(
-        model="~openai/gpt-mini-latest",
+        model="openai/gpt-oss-120b",
         temperature=0.0,
-        reasoning={"effort": "none"},
+        reasoning={"effort": "low"},
         streaming=False,
     )
     prompt = build_create_title_prompt(user_message)

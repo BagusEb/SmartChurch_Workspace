@@ -16,17 +16,17 @@ const int BUZZER_PIN = 4;
 // ======================================================
 // Timing Configuration
 // ======================================================
-const unsigned long cooldownKirim = 5000;   // Minimum interval between data transmissions (5 seconds)
-unsigned long waktuTerakhirKirim = 0;
+const unsigned long sendCooldown = 5000;   // Minimum interval between data transmissions (5 seconds)
+unsigned long lastSendTime = 0;
 
 // ======================================================
 // Detection Lock (Debounce Mechanism)
 // Prevents multiple detections while a person remains
 // within the sensing area.
 // ======================================================
-bool siapMendeteksi = true;
-unsigned long waktuAreaKosong = 0;
-const unsigned long delayAreaKosong = 2000; // Area must remain empty for 2 seconds before reactivation
+bool readyToDetect = true;
+unsigned long emptyAreaTime = 0;
+const unsigned long emptyAreaDelay = 2000; // Area must remain empty for 2 seconds before reactivation
 
 void setup() {
   Serial.begin(115200);
@@ -57,7 +57,7 @@ void setup() {
   // ======================================================
   // Initialize LD2410 Radar Sensor
   // ======================================================
-  Serial1.begin(256000, SERIAL_8N1, 19, 32);
+  Serial1.begin(256000, SERIAL_8N1, 32, 19);
   radar.begin(Serial1);
 
   Serial.println("Radar initialized. Waiting for movement...");
@@ -72,11 +72,11 @@ void loop() {
     if (radar.presenceDetected()) {
 
       // Update the last detected timestamp
-      waktuAreaKosong = millis();
+      emptyAreaTime = millis();
 
-      if (siapMendeteksi &&
-          (waktuTerakhirKirim == 0 ||
-           millis() - waktuTerakhirKirim >= cooldownKirim) &&
+      if (readyToDetect &&
+          (lastSendTime == 0 ||
+           millis() - lastSendTime >= sendCooldown) &&
           radar.movingTargetDetected()) {
 
         int distance = radar.movingTargetDistance();
@@ -164,8 +164,8 @@ void loop() {
           }
 
           // Lock detection until the sensing area becomes empty
-          waktuTerakhirKirim = millis();
-          siapMendeteksi = false;
+          lastSendTime = millis();
+          readyToDetect = false;
 
           Serial.println("[INFO] Detection locked. Waiting for the area to clear...");
         }
@@ -175,10 +175,10 @@ void loop() {
 
       // Reactivate detection after the area has been empty
       // for the configured delay period.
-      if (!siapMendeteksi &&
-          (millis() - waktuAreaKosong >= delayAreaKosong)) {
+      if (!readyToDetect &&
+          (millis() - emptyAreaTime >= emptyAreaDelay)) {
 
-        siapMendeteksi = true;
+        readyToDetect = true;
 
         Serial.println("\n[INFO] Area is clear. Detection reactivated.");
       }

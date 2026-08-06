@@ -365,6 +365,7 @@ def create_or_update_guest_attendance(
         existing_attendance.session = session
         existing_attendance.attendance_date = attendance_date
         existing_attendance.check_in_time = check_in_time
+        existing_attendance.check_out_time = check_in_time
         existing_attendance.confidence = record.confidence
         existing_attendance.notes = (
             existing_attendance.notes or ""
@@ -378,6 +379,7 @@ def create_or_update_guest_attendance(
                 "session",
                 "attendance_date",
                 "check_in_time",
+                "check_out_time",
                 "confidence",
                 "notes",
             ]
@@ -393,6 +395,7 @@ def create_or_update_guest_attendance(
             session=session,
             attendance_date=attendance_date,
             check_in_time=check_in_time,
+            check_out_time=check_in_time,
             confidence=record.confidence,
             notes="",
         )
@@ -482,6 +485,9 @@ def serialize_attendance(attendance):
         else None,
         "check_in_time": attendance.check_in_time.isoformat()
         if attendance.check_in_time
+        else None,
+        "check_out_time": attendance.check_out_time.isoformat()
+        if attendance.check_out_time
         else None,
         "confidence": safe_float(attendance.confidence),
         "notes": attendance.notes,
@@ -765,6 +771,7 @@ def create_or_update_member_attendance(session, member, center_record):
         existing_attendance.session = session
         existing_attendance.attendance_date = attendance_date
         existing_attendance.check_in_time = check_in_time
+        existing_attendance.check_out_time = check_in_time
         existing_attendance.confidence = center_record.confidence
         existing_attendance.notes = ""
         existing_attendance.save()
@@ -779,6 +786,7 @@ def create_or_update_member_attendance(session, member, center_record):
             session=session,
             attendance_date=attendance_date,
             check_in_time=check_in_time,
+            check_out_time=check_in_time,
             confidence=center_record.confidence,
             notes="",
         )

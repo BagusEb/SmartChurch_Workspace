@@ -22,6 +22,8 @@ Flow attendance baru:
 import queue
 import threading
 import time
+from datetime import datetime
+from datetime import timezone as dt_timezone
 
 import cv2
 from django.utils import timezone
@@ -1025,6 +1027,21 @@ class SessionManager:
             or timezone.now()
         )
 
+        # check_out_time = frame terakhir wajah ini masih terlihat.
+        # Track.last_seen adalah epoch float dari time.time().
+        last_seen_epoch = track.get("last_seen")
+
+        if last_seen_epoch:
+            check_out_time = datetime.fromtimestamp(
+                float(last_seen_epoch),
+                tz=dt_timezone.utc,
+            )
+        else:
+            check_out_time = (
+                best_result.get("recognized_at")
+                or capture_time
+            )
+
         face_crop = best_result.get("face_crop")
         embedding = best_result.get("embedding")
 
@@ -1090,6 +1107,22 @@ class SessionManager:
                     if should_update_evidence:
                         existing["best_conf"] = confidence_pct
 
+                    # check_out_time maju setiap kali identity yang sama
+                    # terlihat lagi dalam session ini.
+                    last_check_out = existing.get("last_check_out")
+
+                    should_update_check_out = (
+                        check_out_time is not None
+                        and (
+                            last_check_out is None
+                            or check_out_time > last_check_out
+                        )
+                    )
+
+                    if should_update_check_out:
+                        existing["last_check_out"] = check_out_time
+
+                    if should_update_evidence or should_update_check_out:
                         self._safe_queue_put(
                             self.db_queue,
                             {
@@ -1107,10 +1140,24 @@ class SessionManager:
                                     "timeline_id"
                                 ),
                                 "confidence_pct": confidence_pct,
+                                "should_update_evidence": (
+                                    should_update_evidence
+                                ),
+                                "check_out_time": (
+                                    check_out_time
+                                    if should_update_check_out
+                                    else None
+                                ),
                                 "face_image_bytes": (
                                     face_image_bytes
+                                    if should_update_evidence
+                                    else None
                                 ),
-                                "face_encoding": face_encoding,
+                                "face_encoding": (
+                                    face_encoding
+                                    if should_update_evidence
+                                    else None
+                                ),
                                 "track_id": track_id,
                             },
                             "db_queue",
@@ -1149,6 +1196,7 @@ class SessionManager:
                 seen_map[identity_id] = {
                     "timeline_id": None,
                     "best_conf": confidence_pct,
+                    "last_check_out": check_out_time,
                 }
 
         self._safe_queue_put(
@@ -1175,6 +1223,7 @@ class SessionManager:
             {
                 "action": "create",
                 "capture_time": capture_time,
+                "check_out_time": check_out_time,
                 "best_recognized_at": (
                     best_result.get("recognized_at")
                 ),
@@ -1319,6 +1368,12 @@ class SessionManager:
         """
         Memperbarui evidence terbaik member atau guest.
 
+        Evidence (confidence/face) hanya diganti ketika
+        should_update_evidence=True, sehingga face detection
+        selalu memakai evidence dengan confidence tertinggi.
+
+        check_out_time dimajukan ketika identity terlihat lagi.
+
         Tidak mengubah:
         - capture_time
         - check_in_time
@@ -1340,6 +1395,12 @@ class SessionManager:
         identity_id = data.get("identity_id")
         session_id = data.get("session_id")
         timeline_id = data.get("timeline_id")
+
+        should_update_evidence = bool(
+            data.get("should_update_evidence", True)
+        )
+
+        check_out_time = data.get("check_out_time")
 
         confidence = round(
             float(data.get("confidence_pct") or 0.0),
@@ -1363,50 +1424,64 @@ class SessionManager:
             attendance_filter["guest_id"] = identity_id
 
         try:
-            if not timeline_id:
-                attendance = (
-                    Attendance.objects
-                    .filter(
-                        **attendance_filter,
-                        facedetection_id__isnull=False,
+            if should_update_evidence:
+                if not timeline_id:
+                    attendance = (
+                        Attendance.objects
+                        .filter(
+                            **attendance_filter,
+                            facedetection_id__isnull=False,
+                        )
+                        .only("facedetection_id")
+                        .first()
                     )
-                    .only("facedetection_id")
-                    .first()
-                )
 
-                if attendance:
-                    timeline_id = attendance.facedetection_id
+                    if attendance:
+                        timeline_id = attendance.facedetection_id
 
-            if timeline_id:
+                if timeline_id:
+                    (
+                        TimelineDataRecord.objects
+                        .filter(id=timeline_id)
+                        .filter(
+                            Q(confidence__isnull=True)
+                            | Q(confidence__lt=confidence)
+                        )
+                        .update(
+                            confidence=confidence,
+                            face_image=data.get(
+                                "face_image_bytes"
+                            ),
+                            face_encoding=data.get(
+                                "face_encoding"
+                            ),
+                        )
+                    )
+
                 (
-                    TimelineDataRecord.objects
-                    .filter(id=timeline_id)
+                    Attendance.objects
+                    .filter(**attendance_filter)
                     .filter(
                         Q(confidence__isnull=True)
                         | Q(confidence__lt=confidence)
                     )
                     .update(
                         confidence=confidence,
-                        face_image=data.get(
-                            "face_image_bytes"
-                        ),
-                        face_encoding=data.get(
-                            "face_encoding"
-                        ),
                     )
                 )
 
-            (
-                Attendance.objects
-                .filter(**attendance_filter)
-                .filter(
-                    Q(confidence__isnull=True)
-                    | Q(confidence__lt=confidence)
+            if check_out_time is not None:
+                (
+                    Attendance.objects
+                    .filter(**attendance_filter)
+                    .filter(
+                        Q(check_out_time__isnull=True)
+                        | Q(check_out_time__lt=check_out_time)
+                    )
+                    .update(
+                        check_out_time=check_out_time,
+                    )
                 )
-                .update(
-                    confidence=confidence,
-                )
-            )
 
             logger.debug(
                 "[DBWriter] Recognized evidence updated: "
@@ -1414,7 +1489,9 @@ class SessionManager:
                 f"id={identity_id} | "
                 f"session_id={session_id} | "
                 f"timeline_id={timeline_id} | "
-                f"confidence={confidence}%"
+                f"confidence={confidence}% | "
+                f"evidence_updated={should_update_evidence} | "
+                f"check_out_time={check_out_time}"
             )
 
         except Exception as exc:
@@ -1441,6 +1518,7 @@ class SessionManager:
         """
 
         from django.db import transaction
+        from django.db.models import Q
 
         from attendance.models import (
             Attendance,
@@ -1450,6 +1528,11 @@ class SessionManager:
         )
 
         capture_time = data["capture_time"]
+
+        check_out_time = (
+            data.get("check_out_time")
+            or capture_time
+        )
 
         member_id = data.get("matched_member_id")
         guest_id = data.get("matched_guest_id")
@@ -1601,6 +1684,23 @@ class SessionManager:
 
                         timeline.delete()
 
+                        # Identity terlihat lagi: check_out dimajukan.
+                        (
+                            Attendance.objects
+                            .filter(id=existing_attendance.id)
+                            .filter(
+                                Q(check_out_time__isnull=True)
+                                | Q(
+                                    check_out_time__lt=(
+                                        check_out_time
+                                    )
+                                )
+                            )
+                            .update(
+                                check_out_time=check_out_time
+                            )
+                        )
+
                         logger.info(
                             "[DBWriter] Member duplicate dicegah: "
                             f"member_id={member_id} | "
@@ -1622,6 +1722,9 @@ class SessionManager:
                         existing_attendance.check_in_time = (
                             capture_time
                         )
+                        existing_attendance.check_out_time = (
+                            check_out_time
+                        )
                         existing_attendance.confidence = confidence
                         existing_attendance.notes = (
                             existing_attendance.notes or ""
@@ -1635,6 +1738,7 @@ class SessionManager:
                                 "session",
                                 "attendance_date",
                                 "check_in_time",
+                                "check_out_time",
                                 "confidence",
                                 "notes",
                             ]
@@ -1652,6 +1756,7 @@ class SessionManager:
                                 capture_time.date()
                             ),
                             check_in_time=capture_time,
+                            check_out_time=check_out_time,
                             confidence=confidence,
                             notes="",
                         )
@@ -1690,6 +1795,23 @@ class SessionManager:
 
                         timeline.delete()
 
+                        # Identity terlihat lagi: check_out dimajukan.
+                        (
+                            Attendance.objects
+                            .filter(id=existing_attendance.id)
+                            .filter(
+                                Q(check_out_time__isnull=True)
+                                | Q(
+                                    check_out_time__lt=(
+                                        check_out_time
+                                    )
+                                )
+                            )
+                            .update(
+                                check_out_time=check_out_time
+                            )
+                        )
+
                         logger.info(
                             "[DBWriter] Guest duplicate dicegah: "
                             f"guest_id={guest_id} | "
@@ -1714,6 +1836,9 @@ class SessionManager:
                         existing_attendance.check_in_time = (
                             capture_time
                         )
+                        existing_attendance.check_out_time = (
+                            check_out_time
+                        )
                         existing_attendance.confidence = confidence
                         existing_attendance.notes = (
                             existing_attendance.notes or ""
@@ -1727,6 +1852,7 @@ class SessionManager:
                                 "session",
                                 "attendance_date",
                                 "check_in_time",
+                                "check_out_time",
                                 "confidence",
                                 "notes",
                             ]
@@ -1745,6 +1871,7 @@ class SessionManager:
                                 capture_time.date()
                             ),
                             check_in_time=capture_time,
+                            check_out_time=check_out_time,
                             confidence=confidence,
                             notes="",
                         )

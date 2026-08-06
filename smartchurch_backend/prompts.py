@@ -289,6 +289,8 @@ SCHEMA_CATALOG = {
             "guest_id": "bigint (nullable, FK -> t_guest.id)",
             "member_id": "bigint (nullable, FK -> tm_member.id)",
             "session_id": "bigint (nullable, FK -> tm_worship_session.id)",
+            "check_in_time": "timestamp with time zone (nullable, saat wajah pertama terdeteksi)",
+            "check_out_time": "timestamp with time zone (nullable, saat wajah terakhir terlihat / keluar)",
             "created_at": "timestamp with time zone (wajib)",
         },
     },

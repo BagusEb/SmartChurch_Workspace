@@ -7,7 +7,8 @@ import { createElement, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Users, UserCheck, UserX, CheckCircle2,
-  Clock, Calendar, MousePointerClick, Inbox, ShieldAlert, Eye, X
+  Clock, Calendar, MousePointerClick, Inbox, ShieldAlert, Eye, X,
+  LogIn, LogOut
 } from 'lucide-react';
 import { getAttendanceFaceImage } from '../../service/apiClient';
 
@@ -93,12 +94,12 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
   // ── Placeholder when no session selected ─────────────────
   if (!session) {
     return (
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center py-20 px-6 text-center">
-        <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
+      <div className="flex flex-col justify-center items-center bg-white shadow-sm px-6 py-20 border border-slate-100 rounded-2xl text-center">
+        <div className="flex justify-center items-center bg-indigo-50 mb-4 rounded-2xl w-16 h-16">
           <MousePointerClick size={28} className="text-indigo-300" />
         </div>
-        <p className="text-sm font-bold text-slate-500 mb-1">Pilih sesi untuk melihat detail</p>
-        <p className="text-xs text-slate-400">Klik salah satu sesi di panel kiri untuk menampilkan data kehadiran.</p>
+        <p className="mb-1 font-bold text-slate-500 text-sm">Pilih sesi untuk melihat detail</p>
+        <p className="text-slate-400 text-xs">Klik salah satu sesi di panel kiri untuk menampilkan data kehadiran.</p>
       </div>
     );
   }
@@ -134,19 +135,19 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
         document.body
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+      <div className="flex flex-col bg-white shadow-sm border border-slate-100 rounded-2xl overflow-hidden">
 
         {/* ── Session hero header ────────────────────────── */}
-        <div className="relative bg-gradient-to-br from-indigo-500 via-violet-600 to-purple-700 p-6 text-white overflow-hidden">
-          <div className="absolute -top-6 -right-6 w-24 h-24 bg-white/10 rounded-full" />
-          <div className="absolute -bottom-4 -left-4 w-16 h-16 bg-white/5  rounded-full" />
+        <div className="relative bg-gradient-to-br from-indigo-500 via-violet-600 to-purple-700 p-6 overflow-hidden text-white">
+          <div className="-top-6 -right-6 absolute bg-white/10 rounded-full w-24 h-24" />
+          <div className="-bottom-4 -left-4 absolute bg-white/5 rounded-full w-16 h-16" />
 
-          <p className="text-indigo-200 text-xs font-semibold uppercase tracking-widest mb-1">Sesi Ibadah</p>
-          <h3 className="text-xl font-extrabold leading-tight mb-3 relative z-10">
+          <p className="mb-1 font-semibold text-indigo-200 text-xs uppercase tracking-widest">Sesi Ibadah</p>
+          <h3 className="z-10 relative mb-3 font-extrabold text-xl leading-tight">
             {session.session_name || 'Sesi Ibadah'}
           </h3>
 
-          <div className="flex flex-wrap gap-3 relative z-10">
+          <div className="z-10 relative flex flex-wrap gap-3">
             <InfoChip icon={Calendar} label={fmtDate(session.date)} />
             {session.start_time && <InfoChip icon={Clock} label={`Mulai: ${fmtTime(session.start_time)}`} />}
             {session.end_time && <InfoChip icon={Clock} label={`Selesai: ${fmtTime(session.end_time)}`} />}
@@ -154,14 +155,14 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
 
           {/* Attendance rate bar */}
           {!isLoading && attendees && (
-            <div className="mt-4 relative z-10">
-              <div className="flex items-center justify-between mb-1.5">
+            <div className="z-10 relative mt-4">
+              <div className="flex justify-between items-center mb-1.5">
                 <span className="text-indigo-200 text-xs">Tingkat Kehadiran</span>
-                <span className="text-white text-xs font-extrabold">{rate}%</span>
+                <span className="font-extrabold text-white text-xs">{rate}%</span>
               </div>
-              <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+              <div className="bg-white/20 rounded-full h-2 overflow-hidden">
                 <div
-                  className="h-full bg-white rounded-full transition-all duration-700"
+                  className="bg-white rounded-full h-full transition-all duration-700"
                   style={{ width: `${rate}%` }}
                 />
               </div>
@@ -171,7 +172,7 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
 
         {/* ── Mini stat row ──────────────────────────────── */}
         {!isLoading && attendees && (
-          <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100">
+          <div className="grid grid-cols-3 border-slate-100 border-b divide-x divide-slate-100">
             <MiniStat value={memberCount} label="Jemaat" color="text-indigo-600" />
             <MiniStat value={guestCount}  label="Tamu"   color="text-amber-500"  />
             <MiniStat value={absentCount} label="Absen"  color="text-rose-500"   />
@@ -179,7 +180,7 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
         )}
 
         {/* ── Tab bar ────────────────────────────────────── */}
-        <div className="flex gap-1.5 px-4 pt-4 pb-2 border-b border-slate-100">
+        <div className="flex gap-1.5 px-4 pt-4 pb-2 border-slate-100 border-b">
           {TABS.map(tab => {
             const count   = tab.key === 'members' ? memberCount : tab.key === 'guests' ? guestCount : absentCount;
             const isActive = activeTab === tab.key;
@@ -205,13 +206,13 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
         </div>
 
         {/* ── List body ──────────────────────────────────── */}
-        <div className="overflow-y-auto max-h-80 flex-1">
+        <div className="flex-1 max-h-80 overflow-y-auto">
           {isLoading ? (
             <SkeletonAttendees />
           ) : list.length === 0 ? (
             <EmptyTab msg={TABS.find(t => t.key === activeTab)?.emptyMsg} />
           ) : (
-            <ul className="divide-y divide-slate-50 px-4 py-2">
+            <ul className="px-4 py-2 divide-y divide-slate-50">
               {list.map((person, idx) => {
                 const name         = person.full_name || person.name || '—';
                 const isAbsent     = activeTab === 'absent';
@@ -230,13 +231,20 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">{name}</p>
+                      <p className="font-semibold text-slate-800 text-sm truncate">{name}</p>
                       {person.phone && (
-                        <p className="text-xs text-slate-400 truncate">{person.phone}</p>
+                        <p className="text-slate-400 text-xs truncate">{person.phone}</p>
                       )}
                       {person.check_in_time && !isAbsent && (
-                        <p className="text-[10px] text-emerald-500 font-medium mt-0.5 flex items-center gap-1">
-                          <CheckCircle2 size={10} /> {fmtTime(person.check_in_time)}
+                        <p className="flex items-center gap-2.5 mt-0.5 font-medium text-[10px]">
+                          <span className="flex items-center gap-1 text-emerald-500" title="Jam masuk">
+                            <LogIn size={10} /> {fmtTime(person.check_in_time)}
+                          </span>
+                          {person.check_out_time && (
+                            <span className="flex items-center gap-1 text-amber-500" title="Jam keluar">
+                              <LogOut size={10} /> {fmtTime(person.check_out_time)}
+                            </span>
+                          )}
                         </p>
                       )}
                     </div>
@@ -246,10 +254,10 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
                       <button
                         onClick={() => setConfirmMember({ id: person.id, name })}
                         disabled={isMarking}
-                        className="flex-shrink-0 flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-all disabled:opacity-60"
+                        className="flex flex-shrink-0 items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 px-2.5 py-1.5 rounded-xl font-bold text-[11px] text-indigo-600 transition-all"
                       >
                         {isMarking ? (
-                          <span className="w-3 h-3 border border-indigo-400 border-t-indigo-700 rounded-full animate-spin" />
+                          <span className="border border-indigo-400 border-t-indigo-700 rounded-full w-3 h-3 animate-spin" />
                         ) : (
                           <CheckCircle2 size={12} />
                         )}
@@ -257,7 +265,7 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
                       </button>
                     )}
                     {isAbsent && alreadyMarked && (
-                      <span className="flex-shrink-0 flex items-center gap-1 text-[11px] font-bold text-emerald-500 bg-emerald-50 px-2.5 py-1.5 rounded-xl">
+                      <span className="flex flex-shrink-0 items-center gap-1 bg-emerald-50 px-2.5 py-1.5 rounded-xl font-bold text-[11px] text-emerald-500">
                         <CheckCircle2 size={12} /> Hadir
                       </span>
                     )}
@@ -267,7 +275,7 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
                       <button
                         onClick={() => handleViewFace(person)}
                         title="Lihat gambar wajah saat absensi"
-                        className="flex-shrink-0 p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                        className="flex-shrink-0 hover:bg-indigo-50 p-2 rounded-xl text-slate-400 hover:text-indigo-600 transition-all"
                       >
                         <Eye size={16} />
                       </button>
@@ -287,7 +295,7 @@ export default function SessionDetailPanel({ session, attendees, isLoading, onMa
 function ConfirmModal({ name, onConfirm, onCancel }) {
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+      className="z-[9999] fixed inset-0 flex justify-center items-center bg-slate-900/50 backdrop-blur-sm p-4"
       style={{ animation: 'backdropIn .2s ease' }}
     >
       <style>{`
@@ -299,17 +307,17 @@ function ConfirmModal({ name, onConfirm, onCancel }) {
         .confirm-card { animation: modalIn .25s cubic-bezier(0.34,1.56,0.64,1); }
       `}</style>
 
-      <div className="confirm-card bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+      <div className="bg-white shadow-2xl rounded-2xl w-full max-w-sm overflow-hidden confirm-card">
 
         {/* Icon header */}
-        <div className="flex flex-col items-center pt-8 pb-5 px-6 text-center">
-          <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
+        <div className="flex flex-col items-center px-6 pt-8 pb-5 text-center">
+          <div className="flex justify-center items-center bg-indigo-50 mb-4 rounded-2xl w-14 h-14">
             <ShieldAlert size={28} className="text-indigo-500" />
           </div>
-          <h3 className="text-base font-extrabold text-slate-800 mb-2">
+          <h3 className="mb-2 font-extrabold text-slate-800 text-base">
             Konfirmasi Kehadiran
           </h3>
-          <p className="text-sm text-slate-500 leading-relaxed">
+          <p className="text-slate-500 text-sm leading-relaxed">
             Apakah kamu yakin ingin mengubah status{' '}
             <span className="font-bold text-slate-700">{name}</span>{' '}
             menjadi <span className="font-bold text-emerald-600">Hadir</span>?
@@ -317,14 +325,14 @@ function ConfirmModal({ name, onConfirm, onCancel }) {
         </div>
 
         {/* Divider */}
-        <div className="border-t border-slate-100 mx-6" />
+        <div className="mx-6 border-slate-100 border-t" />
 
         {/* Action buttons */}
         <div className="flex gap-3 p-4">
           {/* Cancel */}
           <button
             onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 transition-all"
+            className="flex-1 hover:bg-slate-50 py-2.5 border border-slate-200 rounded-xl font-semibold text-slate-600 text-sm transition-all"
           >
             Batal
           </button>
@@ -332,7 +340,7 @@ function ConfirmModal({ name, onConfirm, onCancel }) {
           {/* Confirm */}
           <button
             onClick={onConfirm}
-            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
+            className="flex-1 py-2.5 rounded-xl font-bold text-white text-sm transition-all"
             style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' }}
             onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 15px rgba(99,102,241,0.4)'}
             onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
@@ -349,7 +357,7 @@ function ConfirmModal({ name, onConfirm, onCancel }) {
 function FaceImageModal({ name, image, loading, error, onClose }) {
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+      className="z-[9999] fixed inset-0 flex justify-center items-center bg-slate-900/50 backdrop-blur-sm p-4"
       style={{ animation: 'backdropIn .2s ease' }}
     >
       <style>{`
@@ -361,16 +369,16 @@ function FaceImageModal({ name, image, loading, error, onClose }) {
         .face-modal-card { animation: modalIn .25s cubic-bezier(0.34,1.56,0.64,1); }
       `}</style>
 
-      <div className="face-modal-card bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+      <div className="bg-white shadow-2xl rounded-2xl w-full max-w-sm overflow-hidden face-modal-card">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+        <div className="flex justify-between items-center px-5 py-4 border-slate-100 border-b">
           <div className="min-w-0">
-            <h3 className="text-sm font-extrabold text-slate-800 truncate">{name}</h3>
-            <p className="text-[11px] text-slate-400 font-medium">Gambar wajah saat absensi</p>
+            <h3 className="font-extrabold text-slate-800 text-sm truncate">{name}</h3>
+            <p className="font-medium text-[11px] text-slate-400">Gambar wajah saat absensi</p>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all flex-shrink-0"
+            className="flex-shrink-0 hover:bg-slate-100 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 transition-all"
           >
             <X size={16} />
           </button>
@@ -379,20 +387,20 @@ function FaceImageModal({ name, image, loading, error, onClose }) {
         {/* Body */}
         <div className="p-5">
           {loading ? (
-            <div className="w-full aspect-square bg-slate-100 rounded-xl flex flex-col items-center justify-center gap-2 animate-pulse">
-              <span className="w-6 h-6 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
-              <span className="text-xs text-slate-400 font-medium">Memuat gambar…</span>
+            <div className="flex flex-col justify-center items-center gap-2 bg-slate-100 rounded-xl w-full aspect-square animate-pulse">
+              <span className="border-2 border-indigo-300 border-t-indigo-600 rounded-full w-6 h-6 animate-spin" />
+              <span className="font-medium text-slate-400 text-xs">Memuat gambar…</span>
             </div>
           ) : error ? (
-            <div className="w-full aspect-square bg-rose-50 rounded-xl flex flex-col items-center justify-center gap-2 text-center px-6">
+            <div className="flex flex-col justify-center items-center gap-2 bg-rose-50 px-6 rounded-xl w-full aspect-square text-center">
               <ShieldAlert size={24} className="text-rose-300" />
-              <p className="text-xs font-medium text-rose-400">{error}</p>
+              <p className="font-medium text-rose-400 text-xs">{error}</p>
             </div>
           ) : (
             <img
               src={image}
               alt={`Wajah ${name}`}
-              className="w-full aspect-square object-cover rounded-xl shadow-sm"
+              className="shadow-sm rounded-xl w-full object-cover aspect-square"
             />
           )}
         </div>
@@ -405,7 +413,7 @@ function FaceImageModal({ name, image, loading, error, onClose }) {
 
 function InfoChip({ icon: Icon, label }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium bg-white/15 px-3 py-1 rounded-full text-white/90">
+    <span className="inline-flex items-center gap-1.5 bg-white/15 px-3 py-1 rounded-full font-medium text-white/90 text-xs">
       {createElement(Icon, { size: 12, className: 'text-white/70' })}{label}
     </span>
   );
@@ -415,20 +423,20 @@ function MiniStat({ value, label, color }) {
   return (
     <div className="flex flex-col items-center py-3">
       <span className={`text-xl font-extrabold ${color}`}>{value}</span>
-      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{label}</span>
+      <span className="font-semibold text-[10px] text-slate-400 uppercase tracking-wide">{label}</span>
     </div>
   );
 }
 
 function SkeletonAttendees() {
   return (
-    <div className="px-4 py-3 space-y-3">
+    <div className="space-y-3 px-4 py-3">
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 animate-pulse">
-          <div className="w-9 h-9 bg-slate-200 rounded-xl flex-shrink-0" />
+          <div className="flex-shrink-0 bg-slate-200 rounded-xl w-9 h-9" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-3 bg-slate-200 rounded w-2/3" />
-            <div className="h-2.5 bg-slate-100 rounded w-1/3" />
+            <div className="bg-slate-200 rounded w-2/3 h-3" />
+            <div className="bg-slate-100 rounded w-1/3 h-2.5" />
           </div>
         </div>
       ))}
@@ -438,11 +446,11 @@ function SkeletonAttendees() {
 
 function EmptyTab({ msg }) {
   return (
-    <div className="py-12 flex flex-col items-center gap-2 text-center px-6">
-      <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+    <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+      <div className="flex justify-center items-center bg-slate-100 rounded-xl w-10 h-10">
         <Inbox size={18} className="text-slate-300" />
       </div>
-      <p className="text-xs font-medium text-slate-400">{msg}</p>
+      <p className="font-medium text-slate-400 text-xs">{msg}</p>
     </div>
   );
 }

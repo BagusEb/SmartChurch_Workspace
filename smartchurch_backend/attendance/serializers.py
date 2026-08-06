@@ -82,9 +82,10 @@ class AttendanceSerializer(serializers.ModelSerializer):
             'session_name', 
             'display_name',
             'status_type',
-            'attendance_date', 
-            'check_in_time', 
-            'confidence', 
+            'attendance_date',
+            'check_in_time',
+            'check_out_time',
+            'confidence',
             'notes', 
             'created_at'
         ]

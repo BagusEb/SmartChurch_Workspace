@@ -107,6 +107,7 @@ class ServerSentEventRenderer(BaseRenderer):
     format = "sse"
     charset = "utf-8"
 
+    # Override
     def render(self, data, accepted_media_type=None, renderer_context=None):
         if data is None:
             return ""

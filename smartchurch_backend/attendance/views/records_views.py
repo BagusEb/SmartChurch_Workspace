@@ -953,6 +953,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                     earliest_by_key[key] = {
                         "name": name,
                         "check_in_time": attendance.check_in_time,
+                        "check_out_time": attendance.check_out_time,
                         "type": attendee_type,
                     }
 
@@ -994,7 +995,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                 f"Worship {session.date} - {session.session_name}",
                 used_sheet_titles,
             )
-            sheet_rows = [styled_row(["No.", "Name", "check_in_time", "type"], 2)]
+            sheet_rows = [styled_row(["No.", "Name", "check_in_time", "check_out_time", "type"], 2)]
             for index, attendee in enumerate(attendees, start=1):
                 sheet_rows.append(
                     zebra_row(
@@ -1002,6 +1003,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                             index,
                             attendee["name"],
                             format_check_in_time(attendee["check_in_time"]),
+                            format_check_in_time(attendee["check_out_time"]),
                             attendee["type"],
                         ],
                         index,
@@ -1183,6 +1185,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                     "full_name": a.member.full_name,
                     "phone": a.member.phone,
                     "check_in_time": a.check_in_time,
+                    "check_out_time": a.check_out_time,
                     "facedetection_id": a.facedetection_id,
                 }
                 attended_member_ids.add(a.member.id)
@@ -1195,6 +1198,7 @@ class SummaryReportViewSet(viewsets.ModelViewSet):
                     "phone": a.guest.phone,
                     "visit_count": a.guest.visit_count,
                     "check_in_time": a.check_in_time,
+                    "check_out_time": a.check_out_time,
                     "facedetection_id": a.facedetection_id,
                 }
 

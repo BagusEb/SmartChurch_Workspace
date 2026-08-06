@@ -92,6 +92,7 @@ class AttendanceAdmin(admin.ModelAdmin):
         "guest",
         "attendance_date",
         "check_in_time",
+        "check_out_time",
         "confidence",
     )
     list_filter = ("attendance_date",)

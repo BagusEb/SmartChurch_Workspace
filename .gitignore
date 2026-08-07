@@ -16,3 +16,6 @@ dist/
 .vscode
 smartchurch_backend/media/ai_plots/*
 smartchurch_backend/staticfiles/*
+
+smartchurch_backend/model_comparison/*
+.gitignore

@@ -214,7 +214,14 @@ class SimpleFaceTracker:
                     "bbox": bbox,
                     "last_seen": now,
                     "created_at": now,
+
+                    #Waktu pertama wajah terdetksi pada track ini
                     "first_detected_at": detected_at,
+
+                    # Waktu frame terakhir wajah masih terlihat.
+                    # Ini nanti dipakai sebagai candidate check_out_time.
+                    "last_detected_at": detected_at,
+
                     "seen_count": 1,
 
                     # Current recognition result.
@@ -265,6 +272,20 @@ class SimpleFaceTracker:
 
             track = self.tracks[track_id]
 
+            # ============================================================
+            # UPDATE LAST DETECTION TIME
+            # ============================================================
+            # Setiap frame baru tempat wajah masih terlihat memperbarui
+            # last_detected_at.
+            #
+            # Waktu ini TIDAK digunakan sebagai check-in.
+            # first_detected_at tetap menjadi waktu awal track.
+            #
+            # Untuk re-detection identity yang sudah attendance,
+            # last_detected_at akan menjadi check_out_time terbaru.
+            if detected_at is not None:
+                track["last_detected_at"] = detected_at
+                
             # Metadata observasi terakhir berguna untuk debugging.
             track["last_face_size"] = int(
                 detection.get("face_size") or 0

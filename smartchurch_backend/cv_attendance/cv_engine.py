@@ -1027,20 +1027,14 @@ class SessionManager:
             or timezone.now()
         )
 
-        # check_out_time = frame terakhir wajah ini masih terlihat.
-        # Track.last_seen adalah epoch float dari time.time().
-        last_seen_epoch = track.get("last_seen")
-
-        if last_seen_epoch:
-            check_out_time = datetime.fromtimestamp(
-                float(last_seen_epoch),
-                tz=dt_timezone.utc,
-            )
-        else:
-            check_out_time = (
-                best_result.get("recognized_at")
-                or capture_time
-            )
+        # ============================================================
+        # WAKTU TERAKHIR WAJAH TERLIHAT
+        # ============================================================
+        last_detected_at = (
+            track.get("last_detected_at")
+            or best_result.get("recognized_at")
+            or capture_time
+        )
 
         face_crop = best_result.get("face_crop")
         embedding = best_result.get("embedding")
@@ -1098,89 +1092,102 @@ class SessionManager:
                         existing.get("best_conf") or 0.0
                     )
 
+                    # Evidence wajah hanya diganti jika confidence baru
+                    # lebih baik daripada evidence yang sekarang.
                     should_update_evidence = (
                         confidence_pct
                         >= old_best_conf
                         + KNOWN_CONF_UPDATE_MIN_DELTA
                     )
 
-                    if should_update_evidence:
-                        existing["best_conf"] = confidence_pct
+                    # ========================================================
+                    # PENTING:
+                    #
+                    # Re-detection SELALU dikirim ke DB karena check_out_time
+                    # harus terus bergerak mengikuti detection terbaru.
+                    #
+                    # Tetapi confidence/image/encoding hanya di-update jika
+                    # should_update_evidence=True.
+                    # ========================================================
+                    queued = self._safe_queue_put(
+                        self.db_queue,
+                        {
+                            "action": "update_recognized_best_evidence",
 
-                    # check_out_time maju setiap kali identity yang sama
-                    # terlihat lagi dalam session ini.
-                    last_check_out = existing.get("last_check_out")
+                            "identity_type": identity_type,
+                            "identity_id": identity_id,
 
-                    should_update_check_out = (
-                        check_out_time is not None
-                        and (
-                            last_check_out is None
-                            or check_out_time > last_check_out
-                        )
+                            "member_id": member_id,
+                            "guest_id": guest_id,
+
+                            "session_id": self.current_session_id,
+
+                            "timeline_id": existing.get(
+                                "timeline_id"
+                            ),
+
+                            # =================================================
+                            # CHECK OUT
+                            # =================================================
+                            "check_out_time": last_detected_at,
+
+                            # =================================================
+                            # BEST EVIDENCE
+                            # =================================================
+                            "should_update_evidence": (
+                                should_update_evidence
+                            ),
+
+                            "confidence_pct": confidence_pct,
+
+                            "face_image_bytes": (
+                                face_image_bytes
+                            ),
+
+                            "face_encoding": (
+                                face_encoding
+                            ),
+
+                            "track_id": track_id,
+                        },
+                        "db_queue",
                     )
 
-                    if should_update_check_out:
-                        existing["last_check_out"] = check_out_time
-
-                    if should_update_evidence or should_update_check_out:
-                        self._safe_queue_put(
-                            self.db_queue,
-                            {
-                                "action": (
-                                    "update_recognized_best_evidence"
-                                ),
-                                "identity_type": identity_type,
-                                "identity_id": identity_id,
-                                "member_id": member_id,
-                                "guest_id": guest_id,
-                                "session_id": (
-                                    self.current_session_id
-                                ),
-                                "timeline_id": existing.get(
-                                    "timeline_id"
-                                ),
-                                "confidence_pct": confidence_pct,
-                                "should_update_evidence": (
-                                    should_update_evidence
-                                ),
-                                "check_out_time": (
-                                    check_out_time
-                                    if should_update_check_out
-                                    else None
-                                ),
-                                "face_image_bytes": (
-                                    face_image_bytes
-                                    if should_update_evidence
-                                    else None
-                                ),
-                                "face_encoding": (
-                                    face_encoding
-                                    if should_update_evidence
-                                    else None
-                                ),
-                                "track_id": track_id,
-                            },
-                            "db_queue",
-                        )
+                    # Update cache confidence hanya jika item benar-benar
+                    # berhasil dimasukkan ke DB queue.
+                    if queued and should_update_evidence:
+                        existing["best_conf"] = confidence_pct
 
                     self._safe_queue_put(
                         self.log_queue,
                         {
                             "time": (
-                                capture_time.strftime("%H:%M:%S")
+                                last_detected_at.strftime("%H:%M:%S")
                             ),
                             "name": display_name,
                             "status": status,
                             "identity_type": identity_type,
                             "member_id": member_id,
                             "guest_id": guest_id,
+
                             "similarity": round(
                                 similarity,
                                 3,
                             ),
+
                             "confidence_updated": (
                                 should_update_evidence
                             ),
+
+                            # Informasi tambahan untuk debugging frontend/log.
+                            "check_out_updated": bool(queued),
+
+                            "check_out_time": (
+                                last_detected_at.isoformat()
+                                if last_detected_at
+                                else None
+                            ),
+
                             "is_update": True,
                             "provisional": False,
                             "finalized": True,
@@ -1366,19 +1373,25 @@ class SessionManager:
         data: dict,
     ):
         """
-        Memperbarui evidence terbaik member atau guest.
+        Memproses re-detection Member atau Guest dalam session yang sama.
 
-        Evidence (confidence/face) hanya diganti ketika
-        should_update_evidence=True, sehingga face detection
-        selalu memakai evidence dengan confidence tertinggi.
+        Rules:
 
-        check_out_time dimajukan ketika identity terlihat lagi.
+        1. check_in_time TIDAK pernah diubah.
+        Check-in tetap waktu ketika identity pertama kali attendance.
 
-        Tidak mengubah:
-        - capture_time
-        - check_in_time
-        - Guest.visit_count
-        - Guest.last_visit
+        2. check_out_time SELALU bergerak ke detection terbaru.
+
+        3. confidence hanya di-update jika evidence baru lebih baik.
+
+        4. TimelineDataRecord.face_image dan face_encoding hanya
+        diganti jika evidence baru mempunyai confidence lebih tinggi.
+
+        5. Guest.visit_count / first_visit / last_visit tidak berubah
+        karena ini masih attendance session yang sama.
+
+        6. TimelineDataRecord.capture_time juga tidak berubah karena
+        tetap merepresentasikan detection pertama/evidence attendance.
         """
 
         from django.db.models import Q
@@ -1390,28 +1403,42 @@ class SessionManager:
 
         identity_type = str(
             data.get("identity_type") or ""
-        ).lower()
+        ).strip().lower()
 
         identity_id = data.get("identity_id")
         session_id = data.get("session_id")
         timeline_id = data.get("timeline_id")
 
-        should_update_evidence = bool(
-            data.get("should_update_evidence", True)
+        check_out_time = data.get(
+            "check_out_time"
         )
 
-        check_out_time = data.get("check_out_time")
+        should_update_evidence = bool(
+            data.get("should_update_evidence")
+        )
 
         confidence = round(
-            float(data.get("confidence_pct") or 0.0),
+            float(
+                data.get("confidence_pct") or 0.0
+            ),
             2,
         )
 
         if (
-            identity_type not in {"member", "guest"}
+            identity_type not in {
+                "member",
+                "guest",
+            }
             or not identity_id
             or not session_id
         ):
+            logger.warning(
+                "[DBWriter] Re-detection diabaikan karena "
+                "identity/session tidak valid: "
+                f"type={identity_type} | "
+                f"id={identity_id} | "
+                f"session_id={session_id}"
+            )
             return
 
         attendance_filter = {
@@ -1419,86 +1446,155 @@ class SessionManager:
         }
 
         if identity_type == "member":
-            attendance_filter["member_id"] = identity_id
+            attendance_filter["member_id"] = (
+                identity_id
+            )
         else:
-            attendance_filter["guest_id"] = identity_id
+            attendance_filter["guest_id"] = (
+                identity_id
+            )
 
         try:
+            attendance_queryset = (
+                Attendance.objects
+                .filter(**attendance_filter)
+            )
+
+            # ====================================================
+            # 1. UPDATE CHECK OUT
+            # ====================================================
+            #
+            # Check-out selalu bergerak maju.
+            #
+            # Filter check_out_time__lt digunakan sebagai pengamanan
+            # jika suatu saat DB queue diproses tidak persis berdasarkan
+            # chronological event.
+            #
+            # Dengan demikian timestamp yang lebih lama tidak dapat
+            # menimpa checkout yang lebih baru.
+            # ====================================================
+            check_out_updated = 0
+
+            if check_out_time is not None:
+                check_out_updated = (
+                    attendance_queryset
+                    .filter(
+                        Q(check_out_time__isnull=True)
+                        | Q(
+                            check_out_time__lt=(
+                                check_out_time
+                            )
+                        )
+                    )
+                    .update(
+                        check_out_time=check_out_time
+                    )
+                )
+
+            # ====================================================
+            # 2. UPDATE BEST EVIDENCE
+            # ====================================================
+            #
+            # Bagian ini TIDAK selalu berjalan.
+            #
+            # Hanya berjalan kalau confidence pada re-detection
+            # lebih bagus daripada evidence sebelumnya.
+            # ====================================================
+            evidence_updated = False
+
             if should_update_evidence:
+
+                # Kalau timeline_id di cache RAM belum tersedia,
+                # resolve dari Attendance.
                 if not timeline_id:
                     attendance = (
-                        Attendance.objects
+                        attendance_queryset
                         .filter(
-                            **attendance_filter,
-                            facedetection_id__isnull=False,
+                            facedetection_id__isnull=False
                         )
-                        .only("facedetection_id")
+                        .only(
+                            "facedetection_id"
+                        )
                         .first()
                     )
 
                     if attendance:
-                        timeline_id = attendance.facedetection_id
+                        timeline_id = (
+                            attendance.facedetection_id
+                        )
 
+                # -----------------------------------------------
+                # Update TimelineDataRecord
+                # -----------------------------------------------
                 if timeline_id:
-                    (
+                    timeline_updated = (
                         TimelineDataRecord.objects
-                        .filter(id=timeline_id)
+                        .filter(
+                            id=timeline_id
+                        )
                         .filter(
                             Q(confidence__isnull=True)
-                            | Q(confidence__lt=confidence)
+                            | Q(
+                                confidence__lt=confidence
+                            )
                         )
                         .update(
                             confidence=confidence,
+
+                            # Evidence image baru.
                             face_image=data.get(
                                 "face_image_bytes"
                             ),
+
+                            # Embedding baru.
                             face_encoding=data.get(
                                 "face_encoding"
                             ),
                         )
                     )
 
+                    evidence_updated = bool(
+                        timeline_updated
+                    )
+
+                # -----------------------------------------------
+                # Update confidence Attendance
+                # -----------------------------------------------
                 (
-                    Attendance.objects
-                    .filter(**attendance_filter)
+                    attendance_queryset
                     .filter(
                         Q(confidence__isnull=True)
-                        | Q(confidence__lt=confidence)
+                        | Q(
+                            confidence__lt=confidence
+                        )
                     )
                     .update(
-                        confidence=confidence,
+                        confidence=confidence
                     )
                 )
 
-            if check_out_time is not None:
-                (
-                    Attendance.objects
-                    .filter(**attendance_filter)
-                    .filter(
-                        Q(check_out_time__isnull=True)
-                        | Q(check_out_time__lt=check_out_time)
-                    )
-                    .update(
-                        check_out_time=check_out_time,
-                    )
-                )
-
-            logger.debug(
-                "[DBWriter] Recognized evidence updated: "
+            logger.info(
+                "[DBWriter] Recognized re-detection processed: "
                 f"type={identity_type} | "
                 f"id={identity_id} | "
                 f"session_id={session_id} | "
                 f"timeline_id={timeline_id} | "
-                f"confidence={confidence}% | "
-                f"evidence_updated={should_update_evidence} | "
-                f"check_out_time={check_out_time}"
+                f"check_out_time={check_out_time} | "
+                f"check_out_updated={bool(check_out_updated)} | "
+                f"new_confidence={confidence}% | "
+                f"should_update_evidence={should_update_evidence} | "
+                f"evidence_updated={evidence_updated}"
             )
 
         except Exception as exc:
             logger.error(
-                "[DBWriter] Gagal update recognized evidence: "
-                f"{exc}"
+                "[DBWriter] Gagal update recognized re-detection: "
+                f"type={identity_type} | "
+                f"id={identity_id} | "
+                f"session_id={session_id} | "
+                f"error={exc}"
             )
+
 
     @staticmethod
     def _save_detection_to_db(
@@ -1756,7 +1852,8 @@ class SessionManager:
                                 capture_time.date()
                             ),
                             check_in_time=capture_time,
-                            check_out_time=check_out_time,
+                            # Belum ada detection berikutnya.
+                            check_out_time=None,
                             confidence=confidence,
                             notes="",
                         )
@@ -1871,7 +1968,7 @@ class SessionManager:
                                 capture_time.date()
                             ),
                             check_in_time=capture_time,
-                            check_out_time=check_out_time,
+                            
                             confidence=confidence,
                             notes="",
                         )

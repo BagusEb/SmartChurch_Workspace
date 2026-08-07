@@ -22,8 +22,6 @@ Flow attendance baru:
 import queue
 import threading
 import time
-from datetime import datetime
-from datetime import timezone as dt_timezone
 
 import cv2
 from django.utils import timezone
@@ -1203,7 +1201,6 @@ class SessionManager:
                 seen_map[identity_id] = {
                     "timeline_id": None,
                     "best_conf": confidence_pct,
-                    "last_check_out": check_out_time,
                 }
 
         self._safe_queue_put(
@@ -1230,7 +1227,6 @@ class SessionManager:
             {
                 "action": "create",
                 "capture_time": capture_time,
-                "check_out_time": check_out_time,
                 "best_recognized_at": (
                     best_result.get("recognized_at")
                 ),
@@ -1614,7 +1610,6 @@ class SessionManager:
         """
 
         from django.db import transaction
-        from django.db.models import Q
 
         from attendance.models import (
             Attendance,
@@ -1624,11 +1619,6 @@ class SessionManager:
         )
 
         capture_time = data["capture_time"]
-
-        check_out_time = (
-            data.get("check_out_time")
-            or capture_time
-        )
 
         member_id = data.get("matched_member_id")
         guest_id = data.get("matched_guest_id")
@@ -1780,23 +1770,6 @@ class SessionManager:
 
                         timeline.delete()
 
-                        # Identity terlihat lagi: check_out dimajukan.
-                        (
-                            Attendance.objects
-                            .filter(id=existing_attendance.id)
-                            .filter(
-                                Q(check_out_time__isnull=True)
-                                | Q(
-                                    check_out_time__lt=(
-                                        check_out_time
-                                    )
-                                )
-                            )
-                            .update(
-                                check_out_time=check_out_time
-                            )
-                        )
-
                         logger.info(
                             "[DBWriter] Member duplicate dicegah: "
                             f"member_id={member_id} | "
@@ -1818,9 +1791,6 @@ class SessionManager:
                         existing_attendance.check_in_time = (
                             capture_time
                         )
-                        existing_attendance.check_out_time = (
-                            check_out_time
-                        )
                         existing_attendance.confidence = confidence
                         existing_attendance.notes = (
                             existing_attendance.notes or ""
@@ -1834,7 +1804,6 @@ class SessionManager:
                                 "session",
                                 "attendance_date",
                                 "check_in_time",
-                                "check_out_time",
                                 "confidence",
                                 "notes",
                             ]
@@ -1892,23 +1861,6 @@ class SessionManager:
 
                         timeline.delete()
 
-                        # Identity terlihat lagi: check_out dimajukan.
-                        (
-                            Attendance.objects
-                            .filter(id=existing_attendance.id)
-                            .filter(
-                                Q(check_out_time__isnull=True)
-                                | Q(
-                                    check_out_time__lt=(
-                                        check_out_time
-                                    )
-                                )
-                            )
-                            .update(
-                                check_out_time=check_out_time
-                            )
-                        )
-
                         logger.info(
                             "[DBWriter] Guest duplicate dicegah: "
                             f"guest_id={guest_id} | "
@@ -1933,9 +1885,6 @@ class SessionManager:
                         existing_attendance.check_in_time = (
                             capture_time
                         )
-                        existing_attendance.check_out_time = (
-                            check_out_time
-                        )
                         existing_attendance.confidence = confidence
                         existing_attendance.notes = (
                             existing_attendance.notes or ""
@@ -1949,7 +1898,6 @@ class SessionManager:
                                 "session",
                                 "attendance_date",
                                 "check_in_time",
-                                "check_out_time",
                                 "confidence",
                                 "notes",
                             ]

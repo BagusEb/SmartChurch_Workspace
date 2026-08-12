@@ -302,52 +302,69 @@ def create_or_update_guest_attendance(
     record,
 ):
     """
-    Membuat atau melengkapi Attendance Guest.
+    Membuat Attendance Guest HANYA jika belum ada.
+
+    Validation rule:
+
+    - Jika attendance Guest pada session ini sudah ada:
+      return existing attendance tanpa mengubah:
+        * check_in_time
+        * check_out_time
+        * attendance_date
+        * facedetection
+
+      Penanganan checkout existing dilakukan oleh
+      advance_existing_checkout_from_records() di action caller.
+
+    - Jika belum ada attendance:
+      buat attendance baru:
+        check_in_time = record.capture_time
+        check_out_time = NULL
 
     Return:
         attendance
         error
         attendance_created
-
-    Rules:
-    - Belum ada attendance:
-      buat attendance baru dan return attendance_created=True.
-
-    - Sudah ada attendance tanpa facedetection:
-      lengkapi evidence attendance lama dan return False.
-
-    - Sudah ada attendance dengan facedetection:
-      caller harus menangani sebagai idempotent/already attended.
     """
 
-    existing_attendance = get_existing_guest_attendance(
-        session=session,
-        guest=guest,
+    existing_attendance = (
+        get_existing_guest_attendance(
+            session=session,
+            guest=guest,
+        )
     )
 
-    if (
-        existing_attendance
-        and existing_attendance.facedetection_id
-    ):
-        return existing_attendance, None, False
-
-    used_queryset = (
-        Attendance.objects
-        .select_for_update()
-        .filter(facedetection=record)
-    )
-
+    # =========================================================
+    # EXISTING ATTENDANCE
+    #
+    # Jangan rewrite check-in / checkout.
+    # =========================================================
     if existing_attendance:
-        used_queryset = used_queryset.exclude(
-            id=existing_attendance.id
+        return (
+            existing_attendance,
+            None,
+            False,
         )
 
-    facedetection_used = used_queryset.first()
+    # =========================================================
+    # FACEDETECTION HARUS BELUM DIGUNAKAN ATTENDANCE LAIN
+    # =========================================================
+    facedetection_used = (
+        Attendance.objects
+        .select_for_update()
+        .filter(
+            facedetection=record,
+        )
+        .first()
+    )
 
     if facedetection_used:
         return (
             None,
-            "Face detection record ini sudah dipakai oleh attendance lain.",
+            (
+                "Face detection record ini sudah "
+                "dipakai oleh attendance lain."
+            ),
             False,
         )
 
@@ -356,34 +373,9 @@ def create_or_update_guest_attendance(
         session,
     )
 
-    check_in_time = get_record_check_in_time(record)
-
-    if existing_attendance:
-        existing_attendance.member = None
-        existing_attendance.guest = guest
-        existing_attendance.facedetection = record
-        existing_attendance.session = session
-        existing_attendance.attendance_date = attendance_date
-        existing_attendance.check_in_time = check_in_time
-        existing_attendance.confidence = record.confidence
-        existing_attendance.notes = (
-            existing_attendance.notes or ""
-        )
-
-        existing_attendance.save(
-            update_fields=[
-                "member",
-                "guest",
-                "facedetection",
-                "session",
-                "attendance_date",
-                "check_in_time",
-                "confidence",
-                "notes",
-            ]
-        )
-
-        return existing_attendance, None, False
+    check_in_time = (
+        get_record_check_in_time(record)
+    )
 
     try:
         attendance = Attendance.objects.create(
@@ -392,23 +384,35 @@ def create_or_update_guest_attendance(
             facedetection=record,
             session=session,
             attendance_date=attendance_date,
+
+            # First valid attendance detection.
             check_in_time=check_in_time,
+
+            # PENTING:
+            # Validation pertama TIDAK menciptakan checkout.
+            check_out_time=None,
+
             confidence=record.confidence,
             notes="",
         )
 
-        return attendance, None, True
+        return (
+            attendance,
+            None,
+            True,
+        )
 
     except IntegrityError:
         return (
             None,
             (
-                "Gagal membuat attendance karena Guest atau "
-                "face detection sudah digunakan pada session ini."
+                "Gagal membuat attendance karena Guest "
+                "atau face detection sudah digunakan "
+                "pada session ini."
             ),
             False,
         )
-    
+
 def clean_rejected_record(record, validated_at=None):
     """
     Untuk record yang ditolak:
@@ -477,13 +481,24 @@ def serialize_attendance(attendance):
         "guest_id": attendance.guest_id,
         "facedetection_id": attendance.facedetection_id,
         "session_id": attendance.session_id,
-        "attendance_date": attendance.attendance_date.isoformat()
-        if attendance.attendance_date
-        else None,
-        "check_in_time": attendance.check_in_time.isoformat()
-        if attendance.check_in_time
-        else None,
-        "confidence": safe_float(attendance.confidence),
+        "attendance_date": (
+            attendance.attendance_date.isoformat()
+            if attendance.attendance_date
+            else None
+        ),
+        "check_in_time": (
+            attendance.check_in_time.isoformat()
+            if attendance.check_in_time
+            else None
+        ),
+        "check_out_time": (
+            attendance.check_out_time.isoformat()
+            if attendance.check_out_time
+            else None
+        ),
+        "confidence": safe_float(
+            attendance.confidence
+        ),
         "notes": attendance.notes,
     }
 
@@ -566,6 +581,157 @@ def get_existing_member_attendance(session, member):
         .first()
     )
 
+def get_latest_selected_capture_time(records):
+    """
+    Mengambil capture_time PALING AKHIR dari evidence yang benar-benar
+    dipilih untuk action validation.
+
+    Penting:
+    - Hanya selected/center record yang boleh memengaruhi checkout.
+    - Record lain dalam group yang nantinya rejected/deleted
+      tidak ikut dihitung.
+    """
+
+    if records is None:
+        return None
+
+    if isinstance(records, TimelineDataRecord):
+        records = [records]
+
+    capture_times = [
+        record.capture_time
+        for record in records
+        if record is not None
+        and record.capture_time is not None
+    ]
+
+    if not capture_times:
+        return None
+
+    return max(capture_times)
+
+
+def advance_existing_checkout_from_records(
+    attendance,
+    records,
+):
+    """
+    Validation Action TIDAK BOLEH menciptakan checkout baru.
+
+    Rules:
+    1. Attendance tidak ada:
+       tidak melakukan apa-apa.
+
+    2. Attendance.check_out_time masih NULL:
+       tetap NULL.
+       Capture validation TIDAK digunakan sebagai checkout pertama.
+
+    3. Attendance sudah mempunyai check_out_time:
+       - ambil capture_time paling akhir dari selected evidence;
+       - jika capture_time > check_out_time:
+         majukan check_out_time;
+       - jika <= check_out_time:
+         jangan ubah.
+
+    4. check_in_time TIDAK PERNAH disentuh di helper ini.
+    """
+
+    candidate_capture_time = (
+        get_latest_selected_capture_time(records)
+    )
+
+    if attendance is None:
+        return {
+            "updated": False,
+            "reason": "attendance_not_found",
+            "candidate_capture_time": (
+                candidate_capture_time.isoformat()
+                if candidate_capture_time
+                else None
+            ),
+            "previous_check_out_time": None,
+            "new_check_out_time": None,
+        }
+
+    previous_check_out_time = (
+        attendance.check_out_time
+    )
+
+    # =========================================================
+    # RULE UTAMA:
+    # validation tidak boleh membuat checkout dari NULL.
+    # =========================================================
+    if previous_check_out_time is None:
+        return {
+            "updated": False,
+            "reason": "checkout_empty_preserved",
+            "candidate_capture_time": (
+                candidate_capture_time.isoformat()
+                if candidate_capture_time
+                else None
+            ),
+            "previous_check_out_time": None,
+            "new_check_out_time": None,
+        }
+
+    if candidate_capture_time is None:
+        return {
+            "updated": False,
+            "reason": "no_capture_time",
+            "candidate_capture_time": None,
+            "previous_check_out_time": (
+                previous_check_out_time.isoformat()
+            ),
+            "new_check_out_time": (
+                previous_check_out_time.isoformat()
+            ),
+        }
+
+    # Capture validation lebih lama / sama dengan checkout.
+    # Jangan memundurkan checkout.
+    if candidate_capture_time <= previous_check_out_time:
+        return {
+            "updated": False,
+            "reason": "capture_not_newer_than_checkout",
+            "candidate_capture_time": (
+                candidate_capture_time.isoformat()
+            ),
+            "previous_check_out_time": (
+                previous_check_out_time.isoformat()
+            ),
+            "new_check_out_time": (
+                previous_check_out_time.isoformat()
+            ),
+        }
+
+    # =========================================================
+    # Hanya kondisi ini yang boleh mengubah checkout:
+    #
+    # existing checkout != NULL
+    # AND
+    # capture_time validation > existing checkout
+    # =========================================================
+    attendance.check_out_time = candidate_capture_time
+
+    attendance.save(
+        update_fields=[
+            "check_out_time",
+        ]
+    )
+
+    return {
+        "updated": True,
+        "reason": "checkout_advanced",
+        "candidate_capture_time": (
+            candidate_capture_time.isoformat()
+        ),
+        "previous_check_out_time": (
+            previous_check_out_time.isoformat()
+        ),
+        "new_check_out_time": (
+            candidate_capture_time.isoformat()
+        ),
+    }
 
 def delete_validation_timeline_records(records):
     """
@@ -710,45 +876,62 @@ def serialize_member_face_embedding(embedding):
         "created_at": embedding.created_at.isoformat() if embedding.created_at else None,
     }
 
-def create_or_update_member_attendance(session, member, center_record):
+def create_or_update_member_attendance(
+    session,
+    member,
+    center_record,
+):
     """
-    Membuat attendance untuk member yang benar-benar hadir.
+    Membuat Attendance Member hanya jika belum ada.
 
-    Flow utama:
-    - Jika belum ada Attendance member pada session ini:
-      buat row Attendance baru.
-    - Jika sudah ada Attendance dengan facedetection:
-      tolak sebagai duplicate.
-    - Jika sudah ada Attendance tanpa facedetection:
-      row tersebut dianggap manual/legacy attendance dan dilengkapi
-      dengan evidence dari center_record.
+    Validation rule:
 
-    Function ini tidak bergantung pada pre-population.
+    Existing attendance:
+    - jangan rewrite check_in_time;
+    - jangan membuat checkout;
+    - jangan mengganti attendance evidence.
+
+    Checkout existing ditangani terpisah oleh
+    advance_existing_checkout_from_records().
+
+    Attendance belum ada:
+    - check_in = capture_time;
+    - checkout = NULL.
     """
 
     existing_attendance = (
         Attendance.objects
         .select_for_update()
-        .filter(session=session, member=member)
+        .filter(
+            session=session,
+            member=member,
+        )
         .first()
     )
 
-    if existing_attendance and existing_attendance.facedetection_id:
-        return None,( 
-            "Member ini sudah memiliki attendance valid "
-            "pada session ini."
+    if existing_attendance:
+        return (
+            existing_attendance,
+            None,
         )
 
     facedetection_used = (
         Attendance.objects
         .select_for_update()
-        .filter(facedetection=center_record)
-        .exclude(id=existing_attendance.id if existing_attendance else None)
+        .filter(
+            facedetection=center_record,
+        )
         .first()
     )
 
     if facedetection_used:
-        return None, "Face detection record ini sudah dipakai oleh attendance lain."
+        return (
+            None,
+            (
+                "Face detection record ini sudah "
+                "dipakai oleh attendance lain."
+            ),
+        )
 
     attendance_date = (
         center_record.capture_time.date()
@@ -756,20 +939,10 @@ def create_or_update_member_attendance(session, member, center_record):
         else session.date
     )
 
-    check_in_time = center_record.capture_time or timezone.now()
-
-    if existing_attendance:
-        existing_attendance.member = member
-        existing_attendance.guest = None
-        existing_attendance.facedetection = center_record
-        existing_attendance.session = session
-        existing_attendance.attendance_date = attendance_date
-        existing_attendance.check_in_time = check_in_time
-        existing_attendance.confidence = center_record.confidence
-        existing_attendance.notes = ""
-        existing_attendance.save()
-
-        return existing_attendance, None
+    check_in_time = (
+        center_record.capture_time
+        or timezone.now()
+    )
 
     try:
         attendance = Attendance.objects.create(
@@ -778,15 +951,28 @@ def create_or_update_member_attendance(session, member, center_record):
             facedetection=center_record,
             session=session,
             attendance_date=attendance_date,
+
+            # Detection pertama menjadi check-in.
             check_in_time=check_in_time,
+
+            # Validation tidak membuat checkout.
+            check_out_time=None,
+
             confidence=center_record.confidence,
             notes="",
         )
 
         return attendance, None
-    except IntegrityError:
-        return None, "Gagal membuat attendance karena face detection sudah digunakan."
 
+    except IntegrityError:
+        return (
+            None,
+            (
+                "Gagal membuat attendance karena "
+                "member atau face detection sudah "
+                "digunakan pada session ini."
+            ),
+        )
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -961,8 +1147,23 @@ def validation_ai_verify_action(request):
             )
 
             if existing_attendance:
+                # ==================================================
+                # MEMBER SUDAH PUNYA ATTENDANCE
+                #
+                # Timeline validation adalah duplicate evidence.
+                #
+                # Rule:
+                # - jangan ubah check-in;
+                # - jangan membuat checkout jika NULL;
+                # - jika checkout sudah ada dan center_record
+                #   lebih baru -> majukan checkout;
+                # - hapus pending timeline validation.
+                # ==================================================
+
                 deleted_record_ids, delete_error = (
-                    delete_validation_timeline_records(records)
+                    delete_validation_timeline_records(
+                        records
+                    )
                 )
 
                 if delete_error:
@@ -979,36 +1180,91 @@ def validation_ai_verify_action(request):
                         },
                     )
 
+                # VERIFY hanya memakai center_record sebagai
+                # evidence yang dianggap benar.
+                checkout_update = (
+                    advance_existing_checkout_from_records(
+                        attendance=existing_attendance,
+                        records=[center_record],
+                    )
+                )
+
+                attendance_action = (
+                    "checkout_advanced_existing"
+                    if checkout_update["updated"]
+                    else "skipped_existing"
+                )
+
+                if checkout_update["updated"]:
+                    message = (
+                        f"{member.full_name} sudah tercatat hadir "
+                        "pada session ini. Check-in tidak diubah. "
+                        "Checkout diperbarui karena capture validation "
+                        "lebih baru."
+                    )
+                else:
+                    message = (
+                        f"{member.full_name} sudah tercatat hadir "
+                        "pada session ini. Attendance tidak dibuat ulang "
+                        "dan check-in tidak diubah."
+                    )
+
                 return ok_response(
-                    message=(
-                        f"{member.full_name} sudah tercatat hadir pada "
-                        "session ini. Attendance tidak diubah."
-                    ),
+                    message=message,
                     data={
                         "mode": mode,
                         "already_attended": True,
-                        "attendance_skipped": True,
-                        "attendance_action": "skipped_existing",
+
+                        # Tidak ada attendance baru.
+                        "attendance_created": False,
+
+                        "attendance_skipped": (
+                            not checkout_update["updated"]
+                        ),
+
+                        "attendance_action": (
+                            attendance_action
+                        ),
+
+                        "checkout_update": (
+                            checkout_update
+                        ),
+
                         "session": {
                             "id": session.id,
-                            "session_name": session.session_name,
+                            "session_name": (
+                                session.session_name
+                            ),
                             "date": (
                                 session.date.isoformat()
                                 if session.date
                                 else None
                             ),
                         },
+
                         "member": {
                             "id": member.id,
-                            "full_name": member.full_name,
+                            "full_name": (
+                                member.full_name
+                            ),
                         },
-                        "attendance": serialize_attendance(
-                            existing_attendance
+
+                        "attendance": (
+                            serialize_attendance(
+                                existing_attendance
+                            )
                         ),
+
                         "verified_record_id": None,
                         "rejected_record_ids": [],
-                        "deleted_record_ids": deleted_record_ids,
-                        "processed_record_ids": deleted_record_ids,
+
+                        "deleted_record_ids": (
+                            deleted_record_ids
+                        ),
+
+                        "processed_record_ids": (
+                            deleted_record_ids
+                        ),
                     },
                     status=200,
                 )
@@ -1864,10 +2120,21 @@ def validation_ai_confirm_guest_action(request):
                 )
             )
 
-            if (
-                existing_attendance
-                and existing_attendance.facedetection_id
-            ):
+            if existing_attendance:
+                # ==================================================
+                # GUEST SUDAH PUNYA ATTENDANCE SESSION INI
+                #
+                # Tidak boleh:
+                # - membuat attendance kedua;
+                # - menambah visit_count;
+                # - mengubah check-in;
+                # - membuat checkout jika masih NULL.
+                #
+                # Boleh:
+                # - memajukan existing checkout jika checkout
+                #   memang sudah ada DAN selected capture lebih baru.
+                # ==================================================
+
                 deleted_record_ids, delete_error = (
                     delete_validation_timeline_records(
                         records
@@ -1888,21 +2155,58 @@ def validation_ai_confirm_guest_action(request):
                         },
                     )
 
+                # Guest action hanya menggunakan satu gambar
+                # yang benar-benar dipilih admin.
+                checkout_update = (
+                    advance_existing_checkout_from_records(
+                        attendance=existing_attendance,
+                        records=[record],
+                    )
+                )
+
+                attendance_action = (
+                    "checkout_advanced_existing"
+                    if checkout_update["updated"]
+                    else "skipped_existing"
+                )
+
+                if checkout_update["updated"]:
+                    message = (
+                        f"{guest.full_name} sudah tercatat sebagai "
+                        "Guest pada session ini. Attendance dan "
+                        "visit count tidak dibuat ulang. Checkout "
+                        "diperbarui karena capture validation lebih baru."
+                    )
+                else:
+                    message = (
+                        f"{guest.full_name} sudah tercatat sebagai "
+                        "Guest pada session ini. Attendance, check-in, "
+                        "checkout, dan visit count tidak diubah."
+                    )
+
                 return ok_response(
-                    message=(
-                        f"{guest.full_name} sudah tercatat "
-                        "sebagai Guest pada session ini. "
-                        "Attendance dan visit count tidak diubah."
-                    ),
+                    message=message,
                     data={
                         "process_mode": process_mode,
                         "guest_mode": mode,
+
                         "already_attended": True,
-                        "attendance_skipped": True,
-                        "attendance_action": (
-                            "skipped_existing"
+                        "attendance_created": False,
+
+                        "attendance_skipped": (
+                            not checkout_update["updated"]
                         ),
+
+                        "attendance_action": (
+                            attendance_action
+                        ),
+
+                        "checkout_update": (
+                            checkout_update
+                        ),
+
                         "visit_incremented": False,
+
                         "session": {
                             "id": session.id,
                             "session_name": (
@@ -1914,28 +2218,33 @@ def validation_ai_confirm_guest_action(request):
                                 else None
                             ),
                         },
+
                         "guest": (
                             serialize_guest_for_validation(
                                 guest
                             )
                         ),
+
                         "attendance": (
                             serialize_attendance(
                                 existing_attendance
                             )
                         ),
+
                         "guest_confirmed_record_id": None,
+
                         "rejected_record_ids": [],
+
                         "deleted_record_ids": (
                             deleted_record_ids
                         ),
+
                         "processed_record_ids": (
                             deleted_record_ids
                         ),
                     },
                     status=200,
                 )
-
             # ======================================================
             # CREATE / COMPLETE ATTENDANCE
             # ======================================================
@@ -2302,13 +2611,32 @@ def validation_ai_add_member_face_action(request):
             )
 
             if existing_attendance:
-                embeddings = create_member_face_embeddings(
-                    member=member,
-                    selected_records=selected_records,
-                )
+                # ==================================================
+                # MEMBER SUDAH HADIR
+                #
+                # Add Member Face tetap menyimpan embedding.
+                #
+                # Attendance:
+                # - tidak dibuat ulang;
+                # - check-in tidak berubah;
+                # - checkout NULL tetap NULL;
+                # - checkout existing boleh maju berdasarkan
+                #   selected image paling akhir.
+                #
+                # Yang memengaruhi checkout HANYA selected_records.
+                # ==================================================
 
+                # --------------------------------------------------
+                # Delete duplicate validation timeline terlebih dulu.
+                #
+                # selected_records masih menyimpan face_image dan
+                # face_encoding di object Python sehingga tetap dapat
+                # dipakai membuat MemberFaceEmbedding setelah delete.
+                # --------------------------------------------------
                 deleted_record_ids, delete_error = (
-                    delete_validation_timeline_records(records)
+                    delete_validation_timeline_records(
+                        records
+                    )
                 )
 
                 if delete_error:
@@ -2325,42 +2653,118 @@ def validation_ai_add_member_face_action(request):
                         },
                     )
 
+                # --------------------------------------------------
+                # Simpan wajah yang BENAR-BENAR dipilih admin.
+                # --------------------------------------------------
+                embeddings = (
+                    create_member_face_embeddings(
+                        member=member,
+                        selected_records=selected_records,
+                    )
+                )
+
+                # --------------------------------------------------
+                # Checkout candidate = capture paling akhir
+                # dari selected_records.
+                #
+                # Bukan seluruh records/group.
+                # --------------------------------------------------
+                checkout_update = (
+                    advance_existing_checkout_from_records(
+                        attendance=existing_attendance,
+                        records=selected_records,
+                    )
+                )
+
+                attendance_action = (
+                    "checkout_advanced_existing"
+                    if checkout_update["updated"]
+                    else "skipped_existing"
+                )
+
+                if checkout_update["updated"]:
+                    message = (
+                        f"{len(embeddings)} data wajah berhasil "
+                        f"ditambahkan ke {member.full_name}. "
+                        "Member sudah hadir sehingga check-in tidak "
+                        "diubah. Checkout diperbarui berdasarkan "
+                        "capture terpilih yang lebih baru."
+                    )
+                else:
+                    message = (
+                        f"{len(embeddings)} data wajah berhasil "
+                        f"ditambahkan ke {member.full_name}. "
+                        "Member sudah hadir sehingga attendance "
+                        "tidak dibuat ulang dan check-in tidak diubah."
+                    )
+
                 return ok_response(
-                    message=(
-                        f"{len(embeddings)} data wajah berhasil ditambahkan "
-                        f"ke {member.full_name}. Member ini sudah hadir, "
-                        "sehingga attendance tidak diubah."
-                    ),
+                    message=message,
                     data={
                         "process_mode": process_mode,
                         "member_mode": mode,
+
                         "already_attended": True,
-                        "attendance_skipped": True,
-                        "attendance_action": "skipped_existing",
+                        "attendance_created": False,
+
+                        "attendance_skipped": (
+                            not checkout_update["updated"]
+                        ),
+
+                        "attendance_action": (
+                            attendance_action
+                        ),
+
+                        "checkout_update": (
+                            checkout_update
+                        ),
+
                         "session": {
                             "id": session.id,
-                            "session_name": session.session_name,
+                            "session_name": (
+                                session.session_name
+                            ),
                             "date": (
                                 session.date.isoformat()
                                 if session.date
                                 else None
                             ),
                         },
-                        "member": serialize_member_for_validation(member),
-                        "attendance": serialize_attendance(
-                            existing_attendance
+
+                        "member": (
+                            serialize_member_for_validation(
+                                member
+                            )
                         ),
+
+                        "attendance": (
+                            serialize_attendance(
+                                existing_attendance
+                            )
+                        ),
+
                         "attendance_record_id": None,
+
                         "verified_record_ids": [],
                         "rejected_record_ids": [],
-                        "deleted_record_ids": deleted_record_ids,
-                        "processed_record_ids": deleted_record_ids,
+
+                        "deleted_record_ids": (
+                            deleted_record_ids
+                        ),
+
+                        "processed_record_ids": (
+                            deleted_record_ids
+                        ),
+
                         "embedding_ids": [
                             embedding.id
                             for embedding in embeddings
                         ],
+
                         "embeddings": [
-                            serialize_member_face_embedding(embedding)
+                            serialize_member_face_embedding(
+                                embedding
+                            )
                             for embedding in embeddings
                         ],
                     },

@@ -342,8 +342,9 @@ export function GuestModal({
                   {selectedGuest?.full_name || guestSearchName}
                 </p>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Attendance baru akan dibuat untuk sesi ini. Data Guest tetap memakai
-                  row yang sama, sedangkan visit count dan last visit akan diperbarui.
+                  Jika tamu belum memiliki attendance pada sesi ini, sistem akan membuat
+                  attendance baru dan memperbarui visit count. Jika attendance sudah ada,
+                  sistem tidak membuat row baru dan tidak menambah visit count.
                 </p>
               </div>
             )}
@@ -551,8 +552,9 @@ export function MemberModal({
             <p className="mt-1 text-xs leading-relaxed text-blue-700">
               Semua gambar terpilih akan dibuat sebagai data aktif di Member Face
               Embedding. Jika jemaat belum memiliki attendance pada sesi ini, gambar
-              pertama akan dipakai sebagai evidence attendance. Jika jemaat sudah hadir,
-              attendance tidak akan diubah.
+              pertama akan menjadi evidence check-in. Jika jemaat sudah hadir,
+              attendance tidak dibuat ulang dan check-in tidak diubah. Checkout hanya
+              dapat dimajukan jika sebelumnya sudah tersedia dan capture terpilih lebih baru.
             </p>
           </div>
           <div className="rounded-2xl bg-slate-100 p-1">

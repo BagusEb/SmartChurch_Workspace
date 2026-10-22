@@ -1,0 +1,314 @@
+:root {
+  /* --- Color Tokens: Nighttime sanctuary & candlelight ambiance --- */
+  --ink-navy: #0b1622;
+  --vesper-blue: #16283a;
+  --candle-gold: #e8b24d;
+  --candle-gold-soft: #f4d597;
+  --parchment: #f8f1e2;
+  --parchment-deep: #efe3c8;
+  --dusk-lavender: #8b7aa8;
+  --ink-text: #241a10;
+
+  --glow-in: var(--candle-gold);
+  --glow-out: var(--dusk-lavender);
+
+  /* --- Local Fonts (offline support), mimicking Cinzel & Cormorant --- */
+  --font-display: 'Trajan Pro', 'Palatino Linotype', 'Book Antiqua', Georgia, 'Times New Roman', serif;
+  --font-elegant: 'Cormorant Garamond', 'Palatino Linotype', Georgia, 'Times New Roman', serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-display);
+  overflow: hidden;
+}
+
+.app-wrapper {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  transition: background 1.4s ease-in-out, backdrop-filter 1.4s ease-in-out;
+}
+
+/* ===================================================================== */
+/* IDLE STATE (Empty church, nighttime candlelight atmosphere)           */
+/* ===================================================================== */
+.bg-idle {
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(232, 178, 77, 0.1) 0%, transparent 55%),
+    linear-gradient(135deg, rgba(11, 22, 34, 0.9) 0%, rgba(22, 40, 58, 0.82) 55%, rgba(11, 22, 34, 0.92) 100%),
+    url('/bg-gereja.jpg') no-repeat center center fixed;
+  background-size: cover;
+  backdrop-filter: blur(4px);
+}
+
+/* ===================================================================== */
+/* ACTIVE STATE (Congregation entering / exiting)                        */
+/* ===================================================================== */
+.bg-active {
+  background: radial-gradient(ellipse at 50% 40%, var(--parchment) 0%, var(--parchment-deep) 100%);
+  backdrop-filter: blur(0px);
+}
+
+/* Warm golden tone for welcoming (morning vibe) */
+.tone-in {
+  --active-glow: var(--glow-in);
+}
+
+/* Soft twilight tone for departing (evening vibe) */
+.tone-out {
+  --active-glow: var(--glow-out);
+}
+
+/* --- Floating candlelight particles --- */
+.motes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.mote {
+  position: absolute;
+  bottom: -10px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--candle-gold-soft) 0%, transparent 70%);
+  opacity: 0;
+  animation-name: drift;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@keyframes drift {
+  0% {
+    transform: translateY(0) translateX(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  50% {
+    transform: translateY(-45vh) translateX(15px);
+    opacity: 0.5;
+  }
+  85% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateY(-95vh) translateX(-10px);
+    opacity: 0;
+  }
+}
+
+/* ===================================================================== */
+/* IDLE STATE: Content Styling                                           */
+/* ===================================================================== */
+.idle-container {
+  position: relative;
+  text-align: center;
+  color: var(--parchment);
+  animation: smoothFadeIn 1.6s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ornament {
+  color: var(--candle-gold);
+  font-size: 2rem;
+  margin-bottom: 22px;
+  opacity: 0.85;
+  animation: breathe 4.5s ease-in-out infinite;
+}
+
+/* --- Enlarged "Happy Sabbath" title with golden glow animation --- */
+.idle-title {
+  font-size: clamp(4.5rem, 11vw, 11rem);
+  font-weight: 900;
+  margin: 0;
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  background: linear-gradient(
+    100deg,
+    var(--parchment) 20%,
+    var(--candle-gold-soft) 40%,
+    var(--candle-gold) 50%,
+    var(--candle-gold-soft) 60%,
+    var(--parchment) 80%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 16px 60px rgba(232, 178, 77, 0.3);
+  animation: shimmer 6s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: min(480px, 60%);
+  margin: 34px 0;
+  opacity: 0.85;
+}
+
+.divider-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--candle-gold), transparent);
+}
+
+.divider-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--candle-gold);
+  box-shadow: 0 0 14px 3px rgba(232, 178, 77, 0.6);
+  flex-shrink: 0;
+}
+
+/* --- Enlarged Date with smooth fade-in --- */
+.idle-date {
+  font-family: var(--font-elegant);
+  font-size: clamp(2rem, 3.4vw, 3.2rem);
+  font-style: italic;
+  font-weight: 500;
+  margin: 0;
+  color: var(--parchment-deep);
+  letter-spacing: 3px;
+  opacity: 0;
+  animation: dateFadeIn 1.8s ease-out 0.6s forwards;
+}
+
+@keyframes dateFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===================================================================== */
+/* ACTIVE STATE: Content Styling                                         */
+/* ===================================================================== */
+.fullscreen-anim {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: slideFadeUp 0.9s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.anim-halo {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  width: 560px;
+  height: 560px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--active-glow, var(--candle-gold)) 0%, transparent 68%);
+  opacity: 0.35;
+  filter: blur(10px);
+  animation: breathe 3.6s ease-in-out infinite;
+  z-index: 0;
+}
+
+.anim-frame {
+  position: relative;
+  z-index: 1;
+  padding: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(232, 178, 77, 0.35);
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 20px 60px rgba(36, 26, 16, 0.12);
+}
+
+.greeting-text {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-display);
+  color: var(--ink-text);
+  font-size: clamp(2.2rem, 4.6vw, 3.8rem);
+  margin: 10px 0 0 0;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  text-transform: capitalize;
+  padding: 0 24px;
+}
+
+/* ===================================================================== */
+/* KEYFRAMES & ACCESSIBILITY                                             */
+/* ===================================================================== */
+@keyframes smoothFadeIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideFadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+}
+
+/* Respect user preference for reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .mote,
+  .ornament,
+  .anim-halo,
+  .idle-container,
+  .fullscreen-anim,
+  .idle-title,
+  .idle-date {
+    animation: none !important;
+  }
+}
